@@ -1,0 +1,165 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: home-assistant
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+  interval: 30m
+  values:
+    controllers:
+      home-assistant:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            k8s.v1.cni.cncf.io/networks: |
+              [{
+                "name":"multus-iot-untrusted",
+                "namespace": "network",
+                "ips": ["REDACTED_PRIVATE_IP/24"],
+                "mac": "REDACTED_MAC"
+              },
+              {
+                "name":"multus-iot-trusted",
+                "namespace": "network",
+                "ips": ["REDACTED_PRIVATE_IP/24"],
+                "mac": "REDACTED_MAC"
+              },
+              {
+                "name":"multus-clients-trusted",
+                "namespace": "network",
+                "ips": ["REDACTED_PRIVATE_IP/24"],
+                "mac": "REDACTED_MAC"
+              }]
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: hardwaretype
+                        operator: In
+                        values:
+                          - bd795
+          securityContext:
+            fsGroup: 65533
+            fsGroupChangePolicy: OnRootMismatch
+            runAsGroup: 65533
+            runAsUser: 65534
+        containers:
+          app:
+            image:
+              repository: ghcr.io/home-operations/home-assistant
+              tag: 2025.11.1
+            env:
+              VENV_FOLDER: /venv
+            resources:
+              requests:
+                cpu: 100m
+                memory: 2Gi
+              limits:
+                memory: 2Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+          code-server:
+            image:
+              repository: ghcr.io/coder/code-server
+              tag: 4.105.1@sha256:2d48970bd2084aa34a522d772b6a437981ea80407465b3bf7958553985c570e1
+            args:
+              - --auth
+              - none
+              - --disable-telemetry
+              - --disable-update-check
+              - --user-data-dir
+              - /data/user-data
+              - --extensions-dir
+              - /data/extensions
+              - --port
+              - "12321"
+              - /config
+            env:
+              HASS_SERVER: https://hass.${INTERNAL_DOMAIN}
+              HASS_TOKEN:
+                secretKeyRef:
+                  name: home-assistant-secret
+                  key: vscode_hass_token
+            resources:
+              requests:
+                cpu: 100m
+                memory: 1Gi
+              limits:
+                memory: 2Gi
+    service:
+      app:
+        ports:
+          http:
+            appProtocol: kubernetes.io/wss
+            port: 8123
+        primary: true
+      code-server:
+        ports:
+          code-server:
+            port: 12321
+    persistence:
+      config:
+        existingClaim: home-assistant
+        advancedMounts:
+          home-assistant:
+            app:
+              - path: /config
+                subPath: config
+            code-server:
+              - path: /config
+                subPath: config
+              - path: /data
+                subPath: code-server
+      hass-cache:
+        existingClaim: hass-cache
+        advancedMounts:
+          home-assistant:
+            app:
+              - path: /venv
+                subPath: hass-venv
+      tmpfs:
+        type: emptyDir
+        advancedMounts:
+          home-assistant:
+            app:
+              - path: /tmp
+                subPath: hass-tmp
+            code-server:
+              - path: /tmp
+                subPath: code-server-tmp
+              - path: /nonexistent
+                subPath: nonexistent
+    route:
+      app:
+        hostnames:
+          - hass.${INTERNAL_DOMAIN}
+        parentRefs:
+          - name: internal
+            namespace: network
+
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 8123
+      code:
+        hostnames:
+          - hass-code.${INTERNAL_DOMAIN}
+        parentRefs:
+          - name: internal
+            namespace: network
+
+        rules:
+          - backendRefs:
+              - identifier: code-server
+                port: 12321

@@ -1,0 +1,272 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app qbittorrent
+spec:
+  interval: 30m
+  timeout: 10m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+  maxHistory: 2
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 0  # Disable automatic rollback
+  uninstall:
+    keepHistory: false
+  dependsOn:
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  values:
+    controllers:
+      qbittorrent:
+        annotations:
+          reloader.stakater.com/auto: "true"
+          configmap.reloader.stakater.com/reload: qbittorrent-scripts
+        strategy: Recreate
+
+        containers:
+          gluetun:
+            image:
+              repository: ghcr.io/qdm12/gluetun
+              tag: v3.40.0@sha256:2b42bfa046757145a5155acece417b65b4443c8033fb88661a8e9dcf7fda5a00
+            env:
+              DOT: "off"
+              HTTP_CONTROL_SERVER_ADDRESS: :8000
+              HTTP_CONTROL_SERVER_AUTH: "none"  # We'll protect with network policies
+              HEALTH_SERVER_ADDRESS: :9999
+              HEALTH_SUCCESS_WAIT_DURATION: 10s
+              VPN_TYPE: wireguard
+              VPN_SERVICE_PROVIDER: custom
+              VPN_PORT_FORWARDING: "off"
+              FIREWALL_INPUT_PORTS: 8080,8000,9999  # Pod network: qBittorrent WebUI, Gluetun API, Health check
+              # NAT-PMP sidecar will manage VPN port firewall rules dynamically via iptables
+              FIREWALL_OUTBOUND_SUBNETS: REDACTED_PRIVATE_IP/24,10.96.0.0/12  # Allow access to home network and k8s services
+              # Port forwarding will be handled automatically by NAT-PMP
+              UPDATER_PERIOD: 24h
+            envFrom:
+              - secretRef:
+                  name: gluetun-secret
+            lifecycle:
+              postStart:
+                exec:
+                  command: ["/bin/sh", "-c", "(ip rule del table 51820; ip -6 rule del table 51820) || true"]
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: 9999
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  successThreshold: 1
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: 9999
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  successThreshold: 1
+                  timeoutSeconds: 5
+                  failureThreshold: 30
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              runAsNonRoot: false
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                add: [NET_ADMIN, NET_RAW]
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 128Mi
+          natpmp:
+            image:
+              repository: docker.io/library/alpine
+              tag: 3.22.2@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d80990c2ad8dd412
+            command: ["/scripts/natpmp-manager.sh"]
+            securityContext:
+              runAsUser: 0  # Run as root for apk and iptables
+              runAsGroup: 0
+              runAsNonRoot: false  # Override defaultPodOptions
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities: 
+                add: ["NET_ADMIN"]  # Required for iptables
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                cpu: 100m
+                memory: 64Mi
+          app:
+            image:
+              repository: ghcr.io/home-operations/qbittorrent
+              tag: 5.1.2@sha256:31ac39705e31f7cdcc04dc46c1c0b0cdf8dc6f9865d4894efc097a33adc41524
+            command: ["/scripts/qbittorrent-startup.sh"]
+            env:
+              TZ: ${TZ}
+              QBT_WEBUI_PORT: &port 8080
+              # Port will be dynamically assigned by ProtonVPN NAT-PMP
+              QBT_BitTorrent__Session__Interface: "REDACTED_PUBLIC_IP"
+              QBT_BitTorrent__Session__InterfaceName: ""
+              QBT_Preferences__WebUI__AlternativeUIEnabled: false
+              QBT_Preferences__WebUI__AuthSubnetWhitelistEnabled: true
+              QBT_Preferences__WebUI__AuthSubnetWhitelist: "REDACTED_PRIVATE_IP/24,10.30.0.0/16,127.0.0.1/32"
+              QBT_Preferences__WebUI__LocalHostAuth: false
+              CROSS_SEED_ENABLED: true
+              CROSS_SEED_HOST: cross-seed.media.svc.cluster.local
+              CROSS_SEED_PORT: &cross-seed-port 2468
+              CROSS_SEED_SLEEP_INTERVAL: 0
+            envFrom:
+              - secretRef:
+                  name: qbittorrent-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        # Check if qBittorrent is responding
+                        if ! curl -s -f http://localhost:8080 > /dev/null; then
+                          echo "qBittorrent not responding"
+                          exit 1
+                        fi
+                        # Check if external IP is a ProtonVPN IP (not our home IP)
+                        CURRENT_IP=$(curl -s --max-time 5 https://ifconfig.me)
+                        if [ -z "$CURRENT_IP" ]; then
+                          echo "Failed to get external IP"
+                          exit 1
+                        fi
+                        # Get the VPN IP from the tun0 interface
+                        VPN_INTERNAL_IP=$(ip addr show tun0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)
+                        if [ -z "$VPN_INTERNAL_IP" ]; then
+                          echo "VPN interface not found!"
+                          exit 1
+                        fi
+                        # ProtonVPN IPs vary, so just check that we're not using our home IP
+                        # and that we have a valid VPN connection
+                        if [ -n "$CURRENT_IP" ] && [ "$VPN_INTERNAL_IP" = "REDACTED_PRIVATE_IP" ]; then
+                          echo "VPN healthy, ProtonVPN IP: $CURRENT_IP"
+                          exit 0
+                        else
+                          echo "VPN connection issue! Current IP: $CURRENT_IP, VPN Interface: $VPN_INTERNAL_IP"
+                          exit 1
+                        fi
+                  initialDelaySeconds: 60
+                  periodSeconds: 60
+                  timeoutSeconds: 10
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 30
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 100m
+              limits:
+                memory: 16Gi
+
+    defaultPodOptions:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+        fsGroupChangePolicy: OnRootMismatch
+        supplementalGroups:
+          - 65539
+
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: *port
+          cross-seed:
+            port: *cross-seed-port
+
+    route:
+      app:
+        hostnames: ["{{ .Release.Name }}.${INTERNAL_DOMAIN}"]
+        annotations:
+          gethomepage.dev/enabled: "true"
+          gethomepage.dev/icon: qbittorrent.png
+          gethomepage.dev/name: qBittorrent
+          gethomepage.dev/group: Downloads
+          gethomepage.dev/widget.type: *app
+          gethomepage.dev/widget.url: http://qbittorrent.media.svc.cluster.local:8080
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - name: *app
+                port: *port
+
+    persistence:
+      config:
+        existingClaim: *app
+      cross-seeds:
+        type: emptyDir
+      media:
+        existingClaim: media
+        globalMounts:
+          - path: /media
+      scripts:
+        type: configMap
+        name: qbittorrent-scripts
+        defaultMode: 0775
+        globalMounts:
+          - readOnly: true
+      secret-file:
+        type: secret
+        name: cross-seed-secret
+        globalMounts:
+          - path: /config/config.js
+            subPath: config.js
+            readOnly: true

@@ -1,0 +1,89 @@
+---
+# ---------------------------------------------------------------------
+# BD795 Hardware-Specific Configuration
+# Only runs on nodes in the bd795 group
+# ---------------------------------------------------------------------
+
+- name: Install AMD graphics firmware from backports
+  become: true
+  apt:
+    name:
+      - firmware-amd-graphics
+    state: present
+    default_release: "{{ ansible_distribution_release }}-backports"
+
+- name: Check if amd_pstate is already in GRUB config
+  become: true
+  shell: grep -q "amd_pstate" /etc/default/grub && echo "found" || echo "not_found"
+  register: amd_pstate_check
+  changed_when: false
+
+- name: Configure AMD P-state driver in GRUB (when not present)
+  become: true
+  lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT="([^"]*)"'
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="\1 amd_pstate=passive"'
+    backrefs: yes
+  when: amd_pstate_check.stdout == "not_found"
+  notify: update grub
+
+- name: Configure AMD P-state driver in GRUB (when already present)
+  become: true
+  replace:
+    path: /etc/default/grub
+    regexp: 'amd_pstate=\w+'
+    replace: "amd_pstate=passive"
+  when: amd_pstate_check.stdout == "found"
+  notify: update grub
+
+- name: Ensure schedutil CPU governor service is enabled
+  become: true
+  copy:
+    dest: /etc/systemd/system/cpu-governor-schedutil.service
+    content: |
+      [Unit]
+      Description=Set CPU governor to schedutil
+      After=network.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/cpupower frequency-set --governor schedutil
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: enable schedutil governor
+
+- name: Optimize power settings
+  become: true
+  copy:
+    dest: /etc/systemd/system/power-savings.service
+    content: |
+      [Unit]
+      Description=Apply additional power saving settings
+      After=network.target
+
+      [Service]
+      Type=oneshot
+      # Enable powersave for PCIe ASPM
+      ExecStart=/bin/sh -c 'echo powersave > /sys/module/pcie_aspm/parameters/policy'
+      # Enable SATA link power management
+      ExecStart=/bin/sh -c 'for i in /sys/class/scsi_host/host*/link_power_management_policy; do [ -f $i ] && echo med_power_with_dipm > $i || true; done'
+      # Enable audio power saving
+      ExecStart=/bin/sh -c '[ -d /sys/module/snd_hda_intel ] && echo 1 > /sys/module/snd_hda_intel/parameters/power_save || true'
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: enable power savings
+
+- name: Configure additional kernel parameters for power saving
+  become: true
+  lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT="([^"]*)"'
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="\1 pcie_aspm=force processor.max_cstate=10 idle=nomwait"'
+    backrefs: yes
+  when: amd_pstate_check.stdout == "not_found" # Only append if we're already adding the amd_pstate parameter
+  notify: update grub

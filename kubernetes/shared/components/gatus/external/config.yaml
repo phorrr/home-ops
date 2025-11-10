@@ -1,0 +1,9 @@
+endpoints:
+  - name: "${APP}"
+    group: external
+    url: "https://${GATUS_SUBDOMAIN:=${APP}}.${DOMAIN}${GATUS_PATH:=/}"
+    interval: 1m
+    client:
+      dns-resolver: tcp://REDACTED_PUBLIC_IP:53
+    conditions:
+      - "[STATUS] == ${GATUS_STATUS:=200}"

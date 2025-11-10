@@ -1,0 +1,28 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/k8s.cni.cncf.io/networkattachmentdefinition_v1.json
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: multus-iot-trusted
+spec:
+  config: |-
+    {
+      "cniVersion": "1.1.0",
+      "name": "multus-iot-trusted",
+      "plugins": [
+        {
+          "type": "macvlan",
+          "master": "eth0.7",
+          "mode": "bridge",
+          "ipam": {
+            "type": "static",
+            "routes": [
+              { "dst": "REDACTED_PUBLIC_IP/0", "gw": "REDACTED_PRIVATE_IP" }
+            ]
+          }
+        },
+        {
+          "type": "sbr"
+        }
+      ]
+    }

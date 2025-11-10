@@ -1,0 +1,31 @@
+---
+# Default variables for bootstrap-cluster role
+
+# Cluster name (e.g., home-k3s, zapp-k3d, offsite-k3d)
+cluster_name: "{{ lookup('env', 'CLUSTER_NAME') | default('home-k3s', true) }}"
+
+# 1Password vault name (defaults to cluster_name)
+vault_name: "{{ lookup('env', 'VAULT_NAME') | default(cluster_name, true) }}"
+
+# Root directory of the repository
+root_dir: "{{ lookup('env', 'ROOT_DIR') | default(playbook_dir + '/..', true) }}"
+
+# Bootstrap directory (contains helmfile.yaml and resources.yaml.j2)
+bootstrap_dir: "{{ root_dir }}/bootstrap/{{ cluster_name }}"
+
+# Kubernetes context name
+kubeconfig_context: "{{ cluster_name }}"
+
+# Required CLI tools
+required_tools:
+  - kubectl
+  - op
+  - helmfile
+  - minijinja-cli
+
+# Namespaces to wait for after bootstrap
+wait_for_namespaces:
+  - kube-system
+  - cert-manager
+  - external-secrets
+  - flux-system

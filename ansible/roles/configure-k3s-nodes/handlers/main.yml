@@ -1,0 +1,24 @@
+---
+- name: notify_network_change
+  debug:
+    msg: "IMPORTANT: Network configuration has changed. The node {{ inventory_hostname }} needs to be rebooted for changes to take effect."
+
+- name: update grub
+  become: true
+  command: update-grub
+
+- name: enable schedutil governor
+  become: true
+  systemd:
+    name: cpu-governor-schedutil
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: enable power savings
+  become: true
+  systemd:
+    name: power-savings
+    enabled: yes
+    state: started
+    daemon_reload: yes

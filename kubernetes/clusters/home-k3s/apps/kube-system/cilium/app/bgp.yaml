@@ -1,0 +1,71 @@
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumBGPClusterConfig
+metadata:
+  name: cilium-bgp-controllers
+spec:
+  bgpInstances:
+    - name: "instance-65002"
+      localASN: 65100
+      peers:
+        - name: "peer-65002"
+          peerASN: 65002
+          peerAddress: REDACTED_PRIVATE_IP
+          peerConfigRef:
+            name: "cilium-peer"
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumBGPPeerConfig
+metadata:
+  name: cilium-peer
+spec:
+  timers:
+    holdTimeSeconds: 9
+    keepAliveTimeSeconds: 3
+  gracefulRestart:
+    enabled: true
+    restartTimeSeconds: 15
+  families:
+    - afi: ipv4
+      safi: unicast
+      advertisements:
+        matchLabels:
+          advertise: "bgp"
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumBGPAdvertisement
+metadata:
+  name: service-ip-advert
+  labels:
+    advertise: bgp
+spec:
+  advertisements:
+    - advertisementType: "Service"
+      service:
+        addresses:
+          - ExternalIP
+          - LoadBalancerIP
+      selector:
+        matchExpressions:
+          - { key: somekey, operator: NotIn, values: ["never-used-value"] }
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: ippool-internal
+spec:
+  allowFirstLastIPs: "No"
+  blocks:
+    - cidr: 10.33.3.0/24
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: ippool-external
+spec:
+  allowFirstLastIPs: "No"
+  blocks:
+    - cidr: ${EXTERNAL_CIDR}
+  serviceSelector:
+    matchLabels:
+      external: "true"

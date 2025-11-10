@@ -1,0 +1,28 @@
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: &app echo-secure-auth
+  namespace: auth
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: echo-secure
+  extAuth:
+    failOpen: false
+    headersToExtAuth:
+      - accept
+      - cookie
+      - authorization
+      - proxy-authorization
+      - x-forwarded-proto
+    http:
+      backendRefs:
+        - name: authelia
+          namespace: auth
+          port: 80
+      path: /api/authz/ext-authz/
+      headersToBackend:
+        - remote-*
+        - authelia-*

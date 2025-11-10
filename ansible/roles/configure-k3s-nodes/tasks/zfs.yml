@@ -1,0 +1,236 @@
+---
+# ---------------------------------------------------------------------
+# ZFS Configuration
+# Only run if zfs_disks is defined for this host
+# ---------------------------------------------------------------------
+
+- name: Install zfsutils-linux
+  ansible.builtin.apt:
+    name: zfsutils-linux
+    state: present
+    update_cache: true
+
+- name: Install parted
+  ansible.builtin.apt:
+    name: parted
+    state: present
+    update_cache: true
+
+- name: Check for ZFS encryption key
+  ansible.builtin.stat:
+    path: /etc/zpool.key
+  register: zfs_key_file
+
+- name: Fail if ZFS encryption key is not found
+  ansible.builtin.fail:
+    msg: "ZFS encryption key not found at /etc/zpool.key."
+  when: not zfs_key_file.stat.exists
+
+- name: Ensure ZFS encryption key has correct permissions and ownership
+  ansible.builtin.file:
+    path: /etc/zpool.key
+    owner: root
+    group: root
+    mode: "0600"
+  when: zfs_key_file.stat.exists
+
+- name: Check if zpool is already online
+  ansible.builtin.command: zpool list zpool
+  register: zpool_is_online
+  ignore_errors: true
+  changed_when: false
+
+- name: Attempt to import zpool if it exists but is not online
+  ansible.builtin.command: zpool import -f zpool
+  register: zpool_import_result
+  ignore_errors: true
+  changed_when: zpool_import_result.rc == 0
+  when:
+    - zpool_is_online.rc != 0
+    - "'no such pool' not in zpool_is_online.stderr"
+
+- name: Block for zpool creation if it does not exist
+  when: "'no such pool' in zpool_is_online.stderr"
+  block:
+    - name: Get disk information
+      community.general.parted:
+        device: "{{ item }}"
+        unit: s
+      register: disk_info
+      loop: "{{ zfs_disks }}"
+
+    - name: Fail if disks are already partitioned
+      ansible.builtin.fail:
+        msg: "Disk {{ item.item }} already has partitions. For safety, this playbook will not automatically wipe it. Please inspect the disk and manually wipe the partition table if you are sure it's safe to use for the ZFS pool."
+      loop: "{{ disk_info.results }}"
+      when: item.partitions is defined and item.partitions | length > 0
+
+    - name: Create zpool with specified properties
+      ansible.builtin.command: >
+        zpool create -f
+        -o ashift=12
+        -O encryption=on
+        -O keylocation=file:///etc/zpool.key
+        -O keyformat=passphrase
+        zpool
+        {{ zfs_disks | join(' ') }}
+      changed_when: true
+      register: zpool_create_result
+
+- name: Check zpool status after all operations
+  ansible.builtin.command: zpool list zpool
+  register: zpool_final_status
+  ignore_errors: true
+  changed_when: false
+
+- name: Configure zfs-mount-generator for automatic key loading
+  when: zpool_final_status.rc == 0
+  block:
+    - name: Create zfs-list.cache directory
+      ansible.builtin.file:
+        path: /etc/zfs/zfs-list.cache
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create zed.d directory
+      ansible.builtin.file:
+        path: /etc/zfs/zed.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Touch cache file to enable mount generator for zpool
+      ansible.builtin.file:
+        path: /etc/zfs/zfs-list.cache/zpool
+        state: touch
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Check if zfs-list cache for zpool is populated
+      ansible.builtin.stat:
+        path: /etc/zfs/zfs-list.cache/zpool
+      register: zfs_cache_stat
+
+    - name: Enable ZEDLET for zfs-list-cacher
+      ansible.builtin.file:
+        src: /usr/lib/zfs-linux/zed.d/history_event-zfs-list-cacher.sh
+        dest: /etc/zfs/zed.d/history_event-zfs-list-cacher.sh
+        state: link
+        owner: root
+        group: root
+      register: zedlet_link_result
+
+    - name: Ensure zfs-zed service is enabled and running
+      ansible.builtin.systemd:
+        name: zfs-zed.service
+        enabled: true
+        state: started
+
+    - name: Restart zfs-zed if ZEDLET was newly created
+      ansible.builtin.systemd:
+        name: zfs-zed.service
+        state: restarted
+      when: zedlet_link_result.changed
+
+    - name: Populate zfs-list.cache by toggling 'relatime' property
+      block:
+        - name: Set relatime=off to trigger zedlet
+          ansible.builtin.command: zfs set relatime=off zpool
+          changed_when: true
+
+        - name: Set relatime=on to restore setting
+          ansible.builtin.command: zfs set relatime=on zpool
+          changed_when: true
+      when: zfs_cache_stat.stat.size == 0 or (zpool_create_result is defined and zpool_create_result.changed)
+
+    - name: Reload systemd daemon to pick up generated units
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    # ---------------------------------------------------------------------
+    # Create a ZFS dataset for kubelet and mount it at /var/lib/kubelet
+    # ---------------------------------------------------------------------
+    - name: Ensure kubelet mountpoint directory exists
+      ansible.builtin.file:
+        path: /var/lib/kubelet
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check if kubelet dataset already exists
+      ansible.builtin.command: zfs list -H -o name zpool/kubelet
+      register: kubelet_dataset_check
+      changed_when: false
+      failed_when: false
+      when: zpool_final_status.rc == 0
+
+    - name: Create ZFS dataset for kubelet with proper mountpoint
+      ansible.builtin.command: >
+        zfs create -o mountpoint=/var/lib/kubelet zpool/kubelet
+      register: kubelet_dataset_result
+      changed_when: true
+      when:
+        - zpool_final_status.rc == 0
+        - kubelet_dataset_check.rc != 0
+
+    # Check if kubelet dataset is already mounted
+    - name: Check if kubelet dataset is mounted
+      ansible.builtin.command: zfs get -H -o value mounted zpool/kubelet
+      register: kubelet_mounted_check
+      changed_when: false
+      failed_when: false
+      when: zpool_final_status.rc == 0
+
+    - name: Ensure kubelet dataset is mounted
+      ansible.builtin.command: zfs mount zpool/kubelet
+      changed_when: true
+      when:
+        - zpool_final_status.rc == 0
+        - kubelet_mounted_check.stdout != "yes"
+
+    # ---------------------------------------------------------------------
+    # Ensure ZFS dataset for rancher exists and is mounted at /var/lib/rancher
+    # ---------------------------------------------------------------------
+    - name: Ensure rancher mountpoint directory exists
+      ansible.builtin.file:
+        path: /var/lib/rancher
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check if rancher dataset already exists
+      ansible.builtin.command: zfs list -H -o name zpool/rancher
+      register: rancher_dataset_check
+      changed_when: false
+      failed_when: false
+      when: zpool_final_status.rc == 0
+
+    - name: Create ZFS dataset for rancher with proper mountpoint
+      ansible.builtin.command: >
+        zfs create -o mountpoint=/var/lib/rancher zpool/rancher
+      register: rancher_dataset_result
+      changed_when: true
+      when:
+        - zpool_final_status.rc == 0
+        - rancher_dataset_check.rc != 0
+
+    # Check if rancher dataset is already mounted
+    - name: Check if rancher dataset is mounted
+      ansible.builtin.command: zfs get -H -o value mounted zpool/rancher
+      register: rancher_mounted_check
+      changed_when: false
+      failed_when: false
+      when: zpool_final_status.rc == 0
+
+    - name: Ensure rancher dataset is mounted
+      ansible.builtin.command: zfs mount zpool/rancher
+      changed_when: true
+      when:
+        - zpool_final_status.rc == 0
+        - rancher_mounted_check.stdout != "yes"

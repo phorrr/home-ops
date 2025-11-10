@@ -1,0 +1,49 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: qbittorrent-vpn-only
+  namespace: media
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: qbittorrent
+  egress:
+    # Allow DNS lookups
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    
+    # Allow access to Kubernetes API
+    - toEntities:
+        - kube-apiserver
+    
+    # Allow traffic within the cluster (for cross-seed, prowlarr, etc)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+    
+    # Allow traffic to local networks (home network)
+    - toCIDRSet:
+        - cidr: REDACTED_PRIVATE_CIDR
+        - cidr: REDACTED_PRIVATE_CIDR
+        - cidr: REDACTED_PRIVATE_CIDR
+    
+    # Allow ONLY to ProtonVPN WireGuard endpoint
+    - toCIDRSet:
+        - cidr: ${VPN_ENDPOINT_IP}/32
+      toPorts:
+        - ports:
+            - port: "51820"
+              protocol: UDP
+    
+    # Allow traffic through the VPN tunnel (tun0 interface)
+    # This is handled internally by the shared network namespace
+    # between gluetun and qbittorrent containers

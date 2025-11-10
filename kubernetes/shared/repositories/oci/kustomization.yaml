@@ -1,0 +1,12 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/kustomization
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./app-template.yaml
+  - ./dragonfly-operator.yaml
+  - ./envoy.yaml
+  - ./jetstack.yaml
+  - ./kata-deploy.yaml
+  - ./k8s-gateway.yaml
+  - ./prometheus-community.yaml

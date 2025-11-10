@@ -1,0 +1,70 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  become: true
+
+- name: Install required packages
+  become: true
+  package:
+    name:
+      - vim
+      - chrony
+      - sudo
+      - tcpdump
+      - irqbalance
+    state: present
+
+- name: Set hostname to FQDN
+  become: true
+  hostname:
+    name: "{{ inventory_hostname }}.REDACTED_DOMAIN"
+
+- name: Add host entries to /etc/hosts
+  become: true
+  blockinfile:
+    path: /etc/hosts
+    block: |
+      {{ ansible_host }} {{ inventory_hostname }} {{ inventory_hostname }}.REDACTED_DOMAIN
+    marker: "# {mark} ANSIBLE MANAGED BLOCK"
+    state: present
+
+- name: Create REDACTED_NAME user
+  become: true
+  user:
+    name: REDACTED_NAME
+    state: present
+    shell: /bin/bash
+    create_home: true
+    password: "!"
+
+- name: Add SSH key for REDACTED_NAME user
+  become: true
+  authorized_key:
+    user: REDACTED_NAME
+    state: present
+    key: "ssh-ed25519 REDACTED_SSH_PUBLIC_KEY"
+
+- name: Configure passwordless sudo for REDACTED_NAME
+  become: true
+  copy:
+    content: "REDACTED_NAME ALL=(ALL) NOPASSWD: ALL"
+    dest: /etc/sudoers.d/REDACTED_NAME
+    mode: "0440"
+
+- name: Disable root SSH login
+  become: true
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PermitRootLogin"
+    line: "PermitRootLogin no"
+    state: present
+  notify: restart sshd
+
+# ---------------------------------------------------------------------
+# 25GbE Network Tuning
+# ---------------------------------------------------------------------
+- name: Apply 25GbE network tuning
+  ansible.builtin.import_tasks: network-tuning.yml
+  when: enable_network_tuning | default(false) | bool

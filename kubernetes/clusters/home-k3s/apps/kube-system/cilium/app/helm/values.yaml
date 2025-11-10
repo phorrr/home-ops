@@ -1,0 +1,52 @@
+---
+bpf:
+  masquerade: true
+bgpControlPlane:
+  enabled: true
+cni:
+  exclusive: false
+hubble:
+  enabled: true
+  ui:
+    enabled: true
+  relay:
+    enabled: true
+k8sServiceHost: REDACTED_PRIVATE_IP
+k8sServicePort: 6443
+kubeProxyReplacement: true
+kubeProxyReplacementHealthzBindAddr: REDACTED_PUBLIC_IP:10256
+l2announcements:
+  enabled: true
+localRedirectPolicy: true
+operator:
+  dashboards:
+    enabled: true
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  replicas: 2
+  rollOutPods: true
+pmtuDiscovery:
+  enabled: true
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    trustCRDsExist: true
+dashboards:
+  enabled: true
+ipam:
+  mode: kubernetes
+routingMode: tunnel
+enableIPv4BIGTCP: false
+endpointRoutes:
+  enabled: true
+envoy:
+  enabled: false
+gatewayAPI:
+  enabled: false
+# Required for kata containers, see:
+# https://docs.cilium.io/en/latest/network/kubernetes/kubeproxy-free/#socket-loadbalancer-bypass-in-pod-namespace
+socketLB:
+  hostNamespaceOnly: true

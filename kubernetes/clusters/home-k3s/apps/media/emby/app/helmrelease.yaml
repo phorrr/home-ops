@@ -1,0 +1,118 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app emby
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+  maxHistory: 2
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    controllers:
+      emby:
+        containers:
+          app:
+            image:
+              repository: ghcr.io/home-operations/emby
+              tag: 4.9.1
+            env:
+              DOTNET_SYSTEM_IO_DISABLEFILELOCKING: "true"
+              TZ: ${TZ}
+            resources:
+              requests:
+                amd.com/gpu: 1
+                cpu: 100m
+                memory: 1000Mi
+              limits:
+                amd.com/gpu: 1
+                memory: 4000Mi
+            # probes:
+            #   liveness: &probe
+            #     enabled: true
+            #     custom: true
+            #     spec:
+            #       httpGet:
+            #         path: /health
+            #         port: 8096
+            #       initialDelaySeconds: 0
+            #       periodSeconds: 10
+            #       timeoutSeconds: 1
+            #       failureThreshold: 3
+            #   readiness: *probe
+            #   startup:
+            #     enabled: true
+            #     custom: true
+            #     spec:
+            #       httpGet:
+            #         path: /health
+            #         port: 8096
+            #       initialDelaySeconds: 0
+            #       periodSeconds: 10
+            #       timeoutSeconds: 1
+            #       failureThreshold: 30
+
+    defaultPodOptions:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        supplementalGroups: [105]
+        runAsNonRoot: true
+        fsGroupChangePolicy: OnRootMismatch
+      nodeSelector:
+        amd.feature.node.kubernetes.io/gpu: "true"
+
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: &port 8096
+
+    route:
+      app:
+        hostnames: ["{{ .Release.Name }}.${DOMAIN}"]
+        annotations:
+          gethomepage.dev/enabled: "true"
+          gethomepage.dev/icon: emby.png
+          gethomepage.dev/name: Emby
+          gethomepage.dev/group: Media
+          gethomepage.dev/widget.type: emby
+          gethomepage.dev/widget.url: http://emby.media.svc.cluster.local:8096
+          gethomepage.dev/widget.key: '{{ "{{HOMEPAGE_VAR_EMBY_API_KEY}}" }}'
+        parentRefs:
+          - name: external
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - name: *app
+                port: *port
+
+    persistence:
+      config:
+        existingClaim: *app
+        globalMounts:
+          - path: /config
+      transcode:
+        type: emptyDir
+      media:
+        existingClaim: media
+        globalMounts:
+          - path: /media
+      cache:
+        existingClaim: emby-cache
+        globalMounts:
+          - path: /cache

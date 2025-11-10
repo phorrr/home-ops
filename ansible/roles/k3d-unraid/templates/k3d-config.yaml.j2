@@ -1,0 +1,53 @@
+---
+# k3d cluster configuration for {{ k3d_cluster_name }}
+# Uses k3s {{ k3d_k3s_version }} with Flannel CNI (k3s default)
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: {{ k3d_cluster_name }}
+image: rancher/k3s:{{ k3d_k3s_version }}
+servers: 1
+agents: 0  # Single node cluster
+ports:
+  # Expose Kubernetes API server on host network (accessible remotely)
+  - port: 6443:6443
+    nodeFilters:
+      - server:0
+  # Expose ports for Envoy Gateway (alternative to hostPort/hostNetwork)
+  # Maps host ports to NodePort range in cluster, allowing Cilium LB or direct access
+  - port: {{ k3d_http_port }}:30080
+    nodeFilters:
+      - server:0
+  - port: {{ k3d_https_port }}:30443
+    nodeFilters:
+      - server:0
+volumes:
+  # Persist k3s storage across cluster restarts
+  - volume: {{ k3d_storage_dir }}:/var/lib/rancher/k3s/storage
+    nodeFilters:
+      - all
+  # Persist application data
+  - volume: {{ k3d_data_dir }}:/data
+    nodeFilters:
+      - all
+options:
+  k3s:
+    extraArgs:
+      # Disable bundled components - we manage them via GitOps
+      - arg: --disable=traefik,coredns
+        nodeFilters:
+          - server:*
+      # Use Flannel CNI (k3s default) - safe for Unraid kernel
+      # Note: NOT disabling flannel-backend, using default vxlan mode
+      # Add external hostname to TLS certificate for remote access
+      - arg: --tls-san={{ ansible_host }}
+        nodeFilters:
+          - server:*
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: false  # Don't auto-switch context
+  runtime:
+    labels:
+      - label: cluster={{ k3d_cluster_name }}
+        nodeFilters:
+          - server:*

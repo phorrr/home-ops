@@ -1,0 +1,14 @@
+---
+- name: Apply baseline system configuration to all nodes
+  hosts: all
+  become: true
+  become_method: sudo
+  roles:
+    - baseline
+
+- name: Configure K3s nodes
+  hosts: controllers
+  become: true
+  become_method: sudo
+  roles:
+    - configure-k3s-nodes

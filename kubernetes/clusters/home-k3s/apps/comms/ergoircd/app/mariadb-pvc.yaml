@@ -1,0 +1,20 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ergoircd-mariadb-data
+  namespace: comms
+  labels:
+    app.kubernetes.io/name: ergoircd-mariadb
+    app.kubernetes.io/instance: ergoircd
+    app.kubernetes.io/part-of: ergoircd
+    REDACTED_INTERNAL_DOMAIN/enabled: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  resources:
+    requests:
+      storage: 5Gi
+
+  storageClassName: ceph-block-replicated

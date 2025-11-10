@@ -1,0 +1,74 @@
+---
+# yaml-language-server: $schema=https://kube-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app k8s-gateway
+spec:
+  interval: 1h
+  maxHistory: 1
+  chartRef:
+    kind: OCIRepository
+    name: *app
+    namespace: flux-system
+  install:
+    crds: CreateReplace
+    timeout: 2m
+    remediation:
+      retries: 1
+  upgrade:
+    crds: CreateReplace
+    timeout: 2m
+    remediation:
+      retries: 1
+  values:
+    # Placeholder value to pass flux-local
+    # b/c SECRET_DOMAIN comes from kustomize-webhook
+    domain: ${SECRET_DOMAIN:-example.com}
+    fallthrough:
+      enabled: true
+      zones:
+        - ${SECRET_DOMAIN}
+    replicaCount: 2
+    watchedResources:
+      - HTTPRoute
+    extraZonePlugins:
+      - name: log
+      - name: errors
+      - name: health
+        configBlock: |-
+          lameduck 5s
+      - name: ready
+      - name: prometheus
+        parameters: REDACTED_PUBLIC_IP:9153
+      - name: forward
+        parameters: REDACTED_LOCAL_DOMAIN REDACTED_PRIVATE_IP
+      - name: forward
+        parameters: REDACTED_REVERSE_DNS REDACTED_PRIVATE_IP
+      - name: forward
+        parameters: REDACTED_LOCAL_DOMAIN REDACTED_PRIVATE_IP
+      - name: forward
+        parameters: REDACTED_REVERSE_DNS REDACTED_PRIVATE_IP
+      - name: forward
+        parameters: cluster.local REDACTED_PRIVATE_IP
+      - name: forward
+        parameters: REDACTED_REVERSE_DNS REDACTED_PRIVATE_IP
+      - name: forward
+        parameters: . REDACTED_PRIVATE_IP
+    service:
+      type: ClusterIP
+      clusterIP: REDACTED_PRIVATE_IP
+    debug:
+      enabled: true
+    serviceAccount:
+      create: true
+      name: *app
+    tolerations:
+      - key: "location"
+        operator: "Equal"
+        value: "cloud"
+        effect: "NoSchedule"
+      - key: "location"
+        operator: "Equal"
+        value: "house"
+        effect: "NoSchedule"

@@ -1,0 +1,88 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: janitorr-config-generator
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: janitorr-config-generator
+  template:
+    metadata:
+      labels:
+        app: janitorr-config-generator
+    spec:
+      serviceAccountName: janitorr-config-generator
+      containers:
+        - name: config-generator
+          image: docker.io/alpine/k8s:1.34.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Generating janitorr configuration..."
+
+              # Install gettext for envsubst
+              apk add --no-cache gettext
+
+              # Use envsubst to replace placeholders directly
+              envsubst < /config-template/application.yml > /tmp/application.yml
+
+              echo "Creating ConfigMap..."
+              kubectl create configmap janitorr-generated-config \
+                --from-file=application.yml=/tmp/application.yml \
+                --namespace=media \
+                --dry-run=client -o yaml | \
+                kubectl apply -f -
+              echo "Configuration generation complete"
+
+              echo "Entering sleep loop..."
+              while true; do
+                sleep 86400
+              done
+          envFrom:
+            - secretRef:
+                name: janitorr-secret
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+      volumes:
+        - name: config-template
+          configMap:
+            name: janitorr-config
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: janitorr-config-generator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: janitorr-config-generator
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "update", "patch", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: janitorr-config-generator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: janitorr-config-generator
+subjects:
+  - kind: ServiceAccount
+    name: janitorr-config-generator

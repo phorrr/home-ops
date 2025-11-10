@@ -1,0 +1,221 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app authelia
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+  maxHistory: 2
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    defaultPodOptions:
+      enableServiceLinks: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: *app
+
+    controllers:
+      authelia:
+        replicas: 2
+        strategy: RollingUpdate
+        annotations:
+          reloader.stakater.com/auto: "true"
+          configmap.reloader.stakater.com/reload: "authelia-auth-rules"
+        serviceAccount:
+          name: authelia-init
+
+        initContainers:
+          01-init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: "17"
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65534
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+            envFrom:
+              - secretRef:
+                  name: authelia-initdb-secret
+
+
+
+
+        containers:
+          app:
+            args:
+              - --config
+              - /config/base/configuration.yaml
+              - --config
+              - /config/rules/rules.yaml
+            image:
+              repository: ghcr.io/authelia/authelia
+              tag: 4.39.14
+
+            env:
+              AUTHELIA_SERVER_ADDRESS: tcp://REDACTED_PUBLIC_IP:80
+              AUTHELIA_DUO_API_DISABLE: "true"
+              AUTHELIA_NOTIFIER_DISABLE_STARTUP_CHECK: "true"
+              AUTHELIA_NOTIFIER_SMTP_DISABLE_REQUIRE_TLS: "true"
+              AUTHELIA_SERVER_DISABLE_HEALTHCHECK: "true"
+              AUTHELIA_TELEMETRY_METRICS_ADDRESS: tcp://REDACTED_PUBLIC_IP:8080
+              AUTHELIA_TELEMETRY_METRICS_ENABLED: "true"
+              AUTHELIA_THEME: auto
+              AUTHELIA_TOTP_ISSUER: authelia.com
+              X_AUTHELIA_CONFIG_FILTERS: template
+              AUTHELIA_STORAGE_POSTGRES_ADDRESS:
+                valueFrom:
+                  secretKeyRef:
+                    name: &pguser authelia-pguser-secret
+                    key: host
+              AUTHELIA_STORAGE_POSTGRES_DATABASE:
+                valueFrom:
+                  secretKeyRef:
+                    name: *pguser
+                    key: db
+              AUTHELIA_STORAGE_POSTGRES_USERNAME:
+                valueFrom:
+                  secretKeyRef:
+                    name: *pguser
+                    key: user
+              AUTHELIA_STORAGE_POSTGRES_PASSWORD:
+                valueFrom:
+                  secretKeyRef:
+                    name: *pguser
+                    key: password
+
+            envFrom:
+              - secretRef:
+                  name: authelia-secret
+              - secretRef:
+                  name: cluster-vars
+
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/health
+                    port: &port 80
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: false
+
+            resources:
+              requests:
+                cpu: 50m
+                memory: 100Mi
+              limits:
+                memory: 500Mi
+
+
+    service:
+      app:
+        controller: authelia
+        ports:
+          http:
+            port: *port
+          metrics:
+            enabled: true
+            port: 8080
+
+    serviceMonitor:
+      app:
+        serviceName: authelia
+        enabled: true
+        endpoints:
+          - port: metrics
+            scheme: http
+            path: /metrics
+            interval: 1m
+            scrapeTimeout: 10s
+
+    route:
+      app-ext:
+        hostnames: ["auth.${DOMAIN}"]
+        parentRefs:
+          - name: external
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - name: *app
+                port: *port
+      app-int:
+        hostnames: ["auth.${INTERNAL_DOMAIN}"]
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - name: *app
+                port: *port
+    persistence:
+      base-config:
+        enabled: true
+        type: configMap
+        name: authelia-configmap
+        globalMounts: []
+        advancedMounts:
+          authelia:
+            app:
+              - path: /config/base
+                readOnly: true
+      
+      auth-rules-config:
+        enabled: true
+        type: configMap
+        name: authelia-auth-rules
+        globalMounts: []
+        advancedMounts:
+          authelia:
+            app:
+              - path: /config/rules
+                readOnly: true
+      jwk-rsa:
+        enabled: true
+        type: secret
+        name: "jwk-rsa"
+        defaultMode: 0400
+        globalMounts:
+          - subPath: "tls.crt"
+            path: "/secrets/jwk-rsa/tls.crt"
+            readOnly: true
+          - subPath: "tls.key"
+            path: "/secrets/jwk-rsa/tls.key"
+            readOnly: true
+      jwk-ecdsa:
+        enabled: true
+        type: secret
+        name: "jwk-ecdsa"
+        defaultMode: 0400
+        globalMounts:
+          - subPath: "tls.crt"
+            path: "/secrets/jwk-ecdsa/tls.crt"
+            readOnly: true
+          - subPath: "tls.key"
+            path: "/secrets/jwk-ecdsa/tls.key"
+            readOnly: true

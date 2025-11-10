@@ -1,0 +1,84 @@
+---
+- name: Disable k3s service
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Stop and disable k3s service
+      ansible.builtin.systemd:
+        name: k3s
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+- name: Reboot nodes
+  hosts: k3s_cluster
+  tasks:
+    - name: Reboot the nodes
+      ansible.builtin.command: sudo /usr/sbin/reboot
+      ignore_errors: true
+
+    - name: Wait for the nodes to come back
+      ansible.builtin.wait_for_connection:
+        delay: 30
+        timeout: 300
+
+- name: Destroy cluster
+  hosts: k3s_cluster
+  vars:
+    k3s_become: true
+    k3s_state: uninstalled
+  roles:
+    - role: ansible-role-k3s
+
+- name: Destroy ZFS volumes for zpool
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Get list of ZFS volumes
+      ansible.builtin.command: zfs list -H -o name -d 1 zpool
+      changed_when: false
+
+    - name: Destroy ZFS volumes
+      ansible.builtin.command: "zfs destroy -r {{ item }}"
+      with_items: "{{ zfs_volumes.stdout_lines | difference(['zpool']) }}"
+      ignore_errors: true
+
+- name: Clean up rook directory
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Remove /var/lib/rook directory
+      ansible.builtin.file:
+        path: /var/lib/rook
+        state: absent
+
+- name: Clean up rancher directory
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Remove /var/lib/rancher directory
+      ansible.builtin.file:
+        path: /var/lib/rancher
+        state: absent
+
+- name: Clean up kubelet directory
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Remove /var/lib/kubelet directory
+      ansible.builtin.file:
+        path: /var/lib/kubelet
+        state: absent
+
+- name: Clean up CNI directory
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Remove /opt/cni directory
+      ansible.builtin.file:
+        path: /opt/cni
+        state: absent
+    - name: Remove /etc/cni directory
+      ansible.builtin.file:
+        path: /etc/cni
+        state: absent

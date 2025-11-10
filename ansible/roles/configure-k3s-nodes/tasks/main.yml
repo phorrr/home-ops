@@ -1,0 +1,133 @@
+---
+- name: Add Debian backports repository
+  become: true
+  apt_repository:
+    repo: "deb http://deb.debian.org/debian {{ ansible_distribution_release }}-backports main non-free contrib"
+    state: present
+    filename: backports
+
+- name: Set apt preferences for kernel, zfs and firmware packages from backports
+  become: true
+  copy:
+    dest: /etc/apt/preferences.d/backports-kernel
+    content: |
+      Package: linux-image*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+
+      Package: linux-modules*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+
+      Package: linux-headers*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+
+      Package: firmware*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+
+      Package: zfs*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+
+- name: Update apt cache
+  become: true
+  apt:
+    update_cache: yes
+
+- name: Install kernel from backports
+  become: true
+  apt:
+    name:
+      - linux-image-amd64
+      - linux-headers-amd64
+    state: latest
+    default_release: "{{ ansible_distribution_release }}-backports"
+  register: kernel_install_status
+
+- name: Install zfsutils from backports
+  become: true
+  apt:
+    name:
+      - zfsutils-linux
+      - zfs-dkms
+    state: latest
+    default_release: "{{ ansible_distribution_release }}-backports"
+
+- name: Install other packages
+  become: true
+  apt:
+    name:
+      - linux-cpupower
+      - lvm2
+      - powertop
+      - nfs-kernel-server
+    state: present
+
+- name: Apply udev rules for network interfaces
+  ansible.builtin.import_tasks: udev.yml
+
+- name: Reload udev rules
+  become: true
+  ansible.builtin.command: udevadm control --reload-rules
+  changed_when: true
+
+- name: Trigger udev rules to apply changes
+  become: true
+  ansible.builtin.command: udevadm trigger
+  changed_when: true
+
+- name: Configure network interfaces
+  become: true
+  ansible.builtin.blockinfile:
+    path: /etc/network/interfaces
+    block: |
+      auto eth0
+      iface eth0 inet dhcp
+        pre-up /usr/sbin/ethtool --set-fec eth0 encoding off || true
+        post-up /usr/sbin/ip link set dev eth0 mtu 9000
+
+      auto eth0v0
+      iface eth0v0 inet manual
+        pre-up /usr/sbin/ip link set eth0 vf 0 trust on
+        pre-up /usr/sbin/ip link set eth0 vf 0 vlan 7
+
+      auto eth0v1
+      iface eth0v1 inet manual
+        pre-up /usr/sbin/ip link set eth0 vf 1 trust on
+        pre-up /usr/sbin/ip link set eth0 vf 1 vlan 8
+
+      auto eth0v2
+      iface eth0v2 inet manual
+        pre-up /usr/sbin/ip link set eth0 vf 2 trust on
+        pre-up /usr/sbin/ip link set eth0 vf 2 vlan 9
+
+      auto eth0v3
+      iface eth0v2 inet manual
+        pre-up /usr/sbin/ip link set eth0 vf 3 trust on
+        pre-up /usr/sbin/ip link set eth0 vf 3 vlan 10
+
+    marker: "# {mark} ANSIBLE MANAGED"
+    state: present
+  notify: notify_network_change
+
+- name: Reboot server if kernel was updated and we're bootstrapping
+  become: true
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: kernel_install_status.changed and lookup('env', 'BOOTSTRAP') == '1'
+
+# ---------------------------------------------------------------------
+# BD795 Hardware-Specific Configuration
+# ---------------------------------------------------------------------
+- name: Apply BD795-specific configuration
+  ansible.builtin.import_tasks: bd795.yml
+  when: "'bd795' in group_names"
+
+# ---------------------------------------------------------------------
+# ZFS Configuration
+# ---------------------------------------------------------------------
+- name: Apply ZFS configuration
+  ansible.builtin.import_tasks: zfs.yml
+  when: enable_zfs | default(false) | bool

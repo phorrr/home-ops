@@ -1,0 +1,102 @@
+---
+# k3d-unraid role - Install and configure k3d on Unraid nodes
+
+- name: Ensure k3d config directory exists
+  ansible.builtin.file:
+    path: "{{ k3d_config_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Ensure k3d storage directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ k3d_storage_dir }}"
+    - "{{ k3d_data_dir }}"
+
+- name: Ensure /boot/bin directory exists
+  ansible.builtin.file:
+    path: /boot/bin
+    state: directory
+    mode: '0755'
+
+- name: Download k3d binary to persistent storage
+  ansible.builtin.get_url:
+    url: "https://github.com/k3d-io/k3d/releases/download/v{{ k3d_version }}/k3d-linux-amd64"
+    dest: /boot/bin/k3d
+    mode: '0755'
+
+- name: Download kubectl binary to persistent storage
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/v{{ kubectl_version }}/bin/linux/amd64/kubectl"
+    dest: /boot/bin/kubectl
+    mode: '0755'
+
+- name: Download flux CLI to persistent storage
+  ansible.builtin.get_url:
+    url: "https://github.com/fluxcd/flux2/releases/download/v{{ flux_version }}/flux_{{ flux_version }}_linux_amd64.tar.gz"
+    dest: /boot/bin/flux.tar.gz
+    mode: '0644'
+
+- name: Extract flux CLI to persistent storage
+  ansible.builtin.unarchive:
+    src: /boot/bin/flux.tar.gz
+    dest: /boot/bin/
+    remote_src: true
+    creates: /boot/bin/flux
+    extra_opts:
+      - --no-same-owner
+      - --no-same-permissions
+
+- name: Copy binaries to /usr/local/bin (RAM)
+  ansible.builtin.copy:
+    src: "/boot/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    remote_src: true
+    mode: '0755'
+  loop:
+    - k3d
+    - kubectl
+    - flux
+
+- name: Deploy k3d cluster configuration
+  ansible.builtin.template:
+    src: k3d-config.yaml.j2
+    dest: "{{ k3d_config_dir }}/config.yaml"
+    mode: '0644'
+  register: k3d_config
+
+- name: Check if k3d cluster already exists
+  ansible.builtin.command: k3d cluster list
+  register: k3d_list
+  changed_when: false
+  failed_when: false
+
+- name: Create k3d cluster
+  ansible.builtin.command: "k3d cluster create --config {{ k3d_config_dir }}/config.yaml"
+  when: k3d_cluster_name not in k3d_list.stdout
+  register: cluster_created
+  notify: Update docker restart policies
+
+- name: Ensure User Scripts plugin directory exists
+  ansible.builtin.file:
+    path: /boot/config/plugins/user.scripts/scripts/k3d-start
+    state: directory
+    mode: '0755'
+  when: k3d_enable_autostart | default(false) | bool
+
+- name: Deploy k3d startup script for User Scripts plugin
+  ansible.builtin.template:
+    src: k3d-startup.sh.j2
+    dest: /boot/config/plugins/user.scripts/scripts/k3d-start/script
+    mode: '0755'
+  when: k3d_enable_autostart | default(false) | bool
+
+- name: Create cluster marker file
+  ansible.builtin.file:
+    path: "{{ k3d_config_dir }}/.cluster-created"
+    state: touch
+    mode: '0644'
+  when: cluster_created is changed

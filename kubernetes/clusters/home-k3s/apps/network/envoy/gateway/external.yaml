@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/gateway.networking.k8s.io/gateway_v1.json
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: external
+  annotations:
+    external-dns.alpha.kubernetes.io/target: &hostname envoy.${DOMAIN}
+spec:
+  gatewayClassName: envoy
+  infrastructure:
+    annotations:
+      lbipam.cilium.io/ips: ${EXTERNAL_IP}
+      external-dns.alpha.kubernetes.io/hostname: *hostname
+    labels:
+      external: "true"
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: "*.${DOMAIN}"
+      allowedRoutes:
+        namespaces:
+          from: Same
+    # - name: tls-passthrough-auth
+    #   protocol: TLS
+    #   port: 443
+    #   hostname: "auth.${DOMAIN}"
+    #   tls:
+    #     mode: Passthrough
+    #   allowedRoutes:
+    #     namespaces:
+    #       from: Selector
+    #       selector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: auth
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.${DOMAIN}"
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: ${DOMAIN}-tls
+    - name: irc
+      protocol: TCP
+      port: 6667
+      allowedRoutes:
+        kinds:
+          - kind: TCPRoute
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: comms
+    - name: irc-tls
+      protocol: TCP
+      port: 6697
+      allowedRoutes:
+        kinds:
+          - kind: TCPRoute
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: comms

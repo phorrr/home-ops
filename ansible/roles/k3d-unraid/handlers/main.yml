@@ -1,0 +1,9 @@
+---
+# Handlers for k3d-unraid role
+
+- name: Update docker restart policies
+  ansible.builtin.command: "docker update --restart=unless-stopped {{ item }}"
+  loop:
+    - "k3d-{{ k3d_cluster_name }}-server-0"
+    - "k3d-{{ k3d_cluster_name }}-serverlb"
+  ignore_errors: true

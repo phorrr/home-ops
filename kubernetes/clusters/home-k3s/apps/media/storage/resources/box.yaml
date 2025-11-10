@@ -1,0 +1,122 @@
+---
+#
+# This file defines three Kubernetes resources:
+# 1. ConfigMap: To store your SSH public key for secure access.
+# 2. Deployment: To run a Debian pod with an SSH server and all the necessary storage mounts.
+# 3. Service: To expose the SSH server to your network.
+#
+---
+# ### 1. SSH Authorized Keys ConfigMap
+#
+# This ConfigMap contains your SSH public key, allowing you to securely SSH into the pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: box-authorized-keys
+  namespace: media
+data:
+  authorized_keys: REDACTED_SSH_PUBLIC_KEY
+---
+# ### 2. Box Deployment
+#
+# This deployment creates the 'box' pod.
+# It uses the debian:bookworm image, installs an SSH server, and mounts all the specified volumes.
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: box
+  namespace: media
+  labels:
+    app: box
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: box
+  template:
+    metadata:
+      labels:
+        app: box
+    spec:
+      containers:
+        - name: box
+          image: debian:bookworm
+          # This command updates the package list, installs the OpenSSH server,
+          # creates the necessary sshd directory, and starts the SSH daemon in the foreground.
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              apt-get update &&
+              apt-get install -y openssh-server rsync &&
+              mkdir -p /root/.ssh &&
+              chmod 700 /root/.ssh &&
+              touch /root/.ssh/authorized_keys &&
+              chmod 600 /root/.ssh/authorized_keys &&
+              mkdir /var/run/sshd &&
+              /usr/sbin/sshd -D -e
+          ports:
+            - name: ssh
+              containerPort: 22
+              protocol: TCP
+          volumeMounts:
+            - name: series-storage
+              mountPath: /storage/series
+            - name: movies-storage
+              mountPath: /storage/movies
+            - name: nfs-share1
+              mountPath: /storage/nfs/share1
+            - name: nfs-share2
+              mountPath: /storage/nfs/share2
+            - name: authorized-keys-volume
+              mountPath: /root/.ssh/authorized_keys
+              subPath: authorized_keys
+              readOnly: true
+      volumes:
+        # Mount the PersistentVolumeClaims for series and movies
+        - name: series-storage
+          persistentVolumeClaim:
+            claimName: series
+        - name: movies-storage
+          persistentVolumeClaim:
+            claimName: movies
+        # Mount the NFS shares.
+        # IMPORTANT: Replace <NFS_SERVER_IP_1> and <NFS_EXPORT_PATH_1> with your actual NFS server details.
+        - name: nfs-share1
+          nfs:
+            server: REDACTED_PRIVATE_IP
+            path: "/mnt/user/series"
+        # IMPORTANT: Replace <NFS_SERVER_IP_2> and <NFS_EXPORT_PATH_2> with your actual NFS server details.
+        - name: nfs-share2
+          nfs:
+            server: REDACTED_PRIVATE_IP
+            path: "/mnt/user/movies"
+        # Mount the authorized_keys from the ConfigMap
+        - name: authorized-keys-volume
+          configMap:
+            name: box-authorized-keys
+---
+# ### 3. SSH Service
+#
+# This service exposes the SSH port of the 'box' pod.
+# Using type: LoadBalancer will assign an external IP address, making it accessible
+# from your local network. This requires a load balancer implementation in your
+# cluster (e.g., MetalLB for on-premise setups).
+#
+# If you don't have a load balancer, you can change the type to 'NodePort'
+# and access the pod via the node's IP and the assigned node port.
+#
+apiVersion: v1
+kind: Service
+metadata:
+  name: box-ssh
+  namespace: media
+spec:
+  type: LoadBalancer
+  selector:
+    app: box
+  ports:
+    - name: ssh
+      protocol: TCP
+      port: 22
+      targetPort: 22

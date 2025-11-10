@@ -1,0 +1,27 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/k8s.cni.cncf.io/networkattachmentdefinition_v1.json
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: multus-clients-trusted
+spec:
+  config: |-
+    {
+      "cniVersion": "1.1.0",
+      "name": "multus-clients-trusted",
+      "plugins": [
+        {
+          "type": "bridge",
+          "bridge": "br-vlan10",
+          "ipam": {
+            "type": "static",
+            "routes": [
+              { "dst": "REDACTED_PUBLIC_IP/0", "gw": "REDACTED_PRIVATE_IP" }
+            ]
+          }
+        },
+        {
+          "type": "sbr"
+        }
+      ]
+    }

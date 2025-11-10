@@ -1,0 +1,157 @@
+---
+# Playbook to bootstrap applications on k3d clusters
+# Usage: ansible-playbook -i ansible/inventory.yaml ansible/bootstrap-k3d-apps.yaml
+
+- name: Bootstrap k3d cluster applications
+  hosts: localhost
+  gather_facts: false
+  connection: local
+
+  vars:
+    # Override these via --extra-vars or in inventory
+    cluster_name: "{{ lookup('env', 'CLUSTER_NAME') | default('zapp-k3d', true) }}"
+    vault_name: "{{ lookup('env', 'VAULT_NAME') | default(cluster_name, true) }}"
+    root_dir: "{{ lookup('env', 'ROOT_DIR') | default(playbook_dir + '/..', true) }}"
+    bootstrap_dir: "{{ root_dir }}/bootstrap/{{ cluster_name }}"
+    kubeconfig_context: "{{ cluster_name }}"
+
+  pre_tasks:
+    - name: Display bootstrap information
+      ansible.builtin.debug:
+        msg:
+          - "Bootstrapping cluster: {{ cluster_name }}"
+          - "1Password vault: {{ vault_name }}"
+          - "Bootstrap directory: {{ bootstrap_dir }}"
+          - "Kubernetes context: {{ kubeconfig_context }}"
+
+    - name: Check required CLI tools
+      ansible.builtin.command: "which {{ item }}"
+      register: cli_check
+      changed_when: false
+      failed_when: cli_check.rc != 0
+      loop:
+        - kubectl
+        - op
+        - helmfile
+        - minijinja-cli
+
+    - name: Verify bootstrap directory exists
+      ansible.builtin.stat:
+        path: "{{ bootstrap_dir }}"
+      register: bootstrap_dir_stat
+      failed_when: not bootstrap_dir_stat.stat.exists or not bootstrap_dir_stat.stat.isdir
+
+    # Note: User should be signed in to 1Password CLI before running this playbook
+    # If op commands fail with authentication errors, run: eval $(op signin)
+
+    - name: Verify kubectl context exists
+      ansible.builtin.command: "kubectl config get-contexts {{ kubeconfig_context }}"
+      register: context_check
+      changed_when: false
+      failed_when: context_check.rc != 0
+
+  tasks:
+    - name: Wait for cluster nodes to be available
+      ansible.builtin.command: kubectl get nodes --context {{ kubeconfig_context }}
+      register: nodes_check
+      retries: 12
+      delay: 5
+      until: nodes_check.rc == 0
+      changed_when: false
+
+    - name: Fetch CLUSTER_VARS from 1Password
+      ansible.builtin.command: op item get CLUSTER_VARS --format=json --vault {{ vault_name }}
+      register: cluster_vars_raw
+      changed_when: false
+      no_log: true
+
+    - name: Parse CLUSTER_VARS fields
+      ansible.builtin.set_fact:
+        cluster_vars_json: "{{ cluster_vars_raw.stdout | from_json }}"
+      no_log: true
+
+    - name: Fetch and decode base64-encoded GITHUB_DEPLOY_KEY
+      ansible.builtin.shell: |
+        op read "op://{{ vault_name }}/flux/GITHUB_DEPLOY_KEY_B64" | base64 -d
+      register: github_deploy_key_decoded
+      changed_when: false
+      no_log: true
+
+    - name: Render bootstrap resources template
+      ansible.builtin.shell: |
+        op item get CLUSTER_VARS --format=json --vault {{ vault_name }} | \
+        DOMAIN="op://{{ vault_name }}/CLUSTER_VARS/DOMAIN" \
+        INTERNAL_DOMAIN="op://{{ vault_name }}/CLUSTER_VARS/INTERNAL_DOMAIN" \
+        op run --no-masking -- minijinja-cli --env -a none --format=json \
+        {{ bootstrap_dir }}/resources.yaml.j2 - | \
+        op inject
+      register: bootstrap_resources
+      changed_when: false
+      no_log: true
+      environment:
+        ROOT_DIR: "{{ root_dir }}"
+        GITHUB_DEPLOY_KEY: "{{ github_deploy_key_decoded.stdout }}"
+
+    - name: Apply bootstrap resources to cluster
+      kubernetes.core.k8s:
+        context: "{{ kubeconfig_context }}"
+        state: present
+        definition: "{{ bootstrap_resources.stdout | from_yaml_all }}"
+        server_side_apply:
+          field_manager: ansible
+      register: resources_applied
+      no_log: true
+
+    - name: Display resources application result
+      ansible.builtin.debug:
+        msg: "Bootstrap resources applied: {{ resources_applied.changed | ternary('changes made', 'no changes') }}"
+
+    - name: Install Helm charts via helmfile
+      ansible.builtin.command:
+        cmd: helmfile apply --hide-notes --skip-diff-on-install --suppress-diff --suppress-secrets
+        chdir: "{{ bootstrap_dir }}"
+      register: helmfile_result
+      changed_when: "'Affected releases are' in helmfile_result.stdout or 'Upgrading release' in helmfile_result.stdout or 'Installing release' in helmfile_result.stdout"
+      environment:
+        ROOT_DIR: "{{ root_dir }}"
+        KUBECONFIG: "{{ lookup('env', 'KUBECONFIG') }}"
+
+    - name: Wait for core services to be ready
+      ansible.builtin.command: kubectl wait --for=condition=Ready pods --all -n {{ item }} --timeout=300s --context {{ kubeconfig_context }}
+      loop:
+        - cert-manager
+        - external-secrets
+        - flux-system
+      register: pods_ready
+      retries: 3
+      delay: 10
+      until: pods_ready.rc == 0
+      changed_when: false
+      failed_when: false
+
+  post_tasks:
+    - name: Get cluster status
+      ansible.builtin.command: kubectl get pods -A --context {{ kubeconfig_context }}
+      register: cluster_status
+      changed_when: false
+
+    - name: Display cluster status
+      ansible.builtin.debug:
+        msg: "{{ cluster_status.stdout_lines }}"
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg:
+          - "✓ Cluster '{{ cluster_name }}' bootstrap complete!"
+          - ""
+          - "Core services installed:"
+          - "  • Cilium (CNI)"
+          - "  • CoreDNS"
+          - "  • cert-manager"
+          - "  • 1Password Connect"
+          - "  • External Secrets Operator"
+          - "  • Flux Operator & Instance"
+          - ""
+          - "Next steps:"
+          - "  • Verify Flux reconciliation: flux get all -A --context {{ kubeconfig_context }}"
+          - "  • Check for errors: flux logs --all-namespaces --level=error --context {{ kubeconfig_context }}"

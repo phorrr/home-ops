@@ -1,0 +1,88 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app qbittorrent-secrets
+  namespace: &namespace media
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: qbittorrent
+  dependsOn:
+    - name: onepassword
+      namespace: external-secrets
+  interval: 30m
+  path: ./kubernetes/clusters/home-k3s/apps/media/qbittorrent/secrets
+  prune: true
+  retryInterval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: *namespace
+  timeout: 5m
+  wait: true
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app qbittorrent
+  namespace: &namespace media
+  labels:
+    has-custom-substitutions: "true"
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  components:
+    - ../../../../../../shared/components/gatus/guarded
+    - ../../../../../../shared/components/volsync
+  dependsOn:
+    - name: qbittorrent-secrets
+      namespace: media
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  interval: 30m
+  path: ./kubernetes/clusters/home-k3s/apps/media/qbittorrent/app
+  postBuild:
+    substitute:
+      APP: *app
+      AUTHELIA_GROUP: arr-stack
+    substituteFrom:
+      - kind: Secret
+        name: cluster-vars
+        optional: false
+      - kind: Secret
+        name: gluetun-secret
+        optional: false
+  prune: true
+  retryInterval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: *namespace
+  timeout: 5m
+  wait: false
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app qbittorrent-tools
+  namespace: &namespace media
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  dependsOn:
+    - name: qbittorrent
+      namespace: *namespace
+  interval: 30m
+  path: ./kubernetes/clusters/home-k3s/apps/media/qbittorrent/tools
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: *namespace
+  wait: false

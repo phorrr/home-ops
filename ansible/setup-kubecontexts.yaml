@@ -1,0 +1,129 @@
+---
+# Playbook to configure kubectl contexts for all clusters
+# Usage: ansible-playbook -i ansible/inventory.yaml ansible/setup-kubecontexts.yaml
+
+- name: Fetch k3s kubeconfigs
+  hosts: controllers
+  gather_facts: false
+  run_once: true
+
+  tasks:
+    - name: Fetch k3s kubeconfig
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      register: k3s_kubeconfig
+      delegate_to: REDACTED_HOST
+      delegate_facts: false
+
+    - name: Save k3s kubeconfig to localhost
+      ansible.builtin.copy:
+        content: "{{ k3s_kubeconfig.content | b64decode }}"
+        dest: "/tmp/home-k3s-kubeconfig.yaml"
+        mode: '0600'
+      delegate_to: localhost
+
+- name: Fetch k3d kubeconfigs
+  hosts: unraid_k3d_clusters
+  gather_facts: false
+
+  tasks:
+    - name: Get k3d kubeconfig
+      ansible.builtin.command: "k3d kubeconfig get {{ k3d_cluster_name }}"
+      register: k3d_kubeconfig
+      changed_when: false
+
+    - name: Save k3d kubeconfig to localhost
+      ansible.builtin.copy:
+        content: "{{ k3d_kubeconfig.stdout }}"
+        dest: "/tmp/{{ k3d_cluster_name }}-kubeconfig.yaml"
+        mode: '0600'
+      delegate_to: localhost
+
+- name: Write individual cluster kubeconfigs
+  hosts: localhost
+  gather_facts: false
+  connection: local
+
+  vars:
+    kubeconfig_dir: "{{ lookup('env', 'HOME') }}/.kube"
+    clusters_dir: "{{ kubeconfig_dir }}/clusters"
+
+    kubeconfigs:
+      - name: home-k3s
+        raw_file: /tmp/home-k3s-kubeconfig.yaml
+        api_server: REDACTED_DOMAIN:6443
+      - name: zapp-k3d
+        raw_file: /tmp/zapp-k3d-kubeconfig.yaml
+        api_server: REDACTED_DOMAIN:6443
+      # - name: offsite-k3d
+      #   raw_file: /tmp/offsite-k3d-kubeconfig.yaml
+      #   api_server: REDACTED_DOMAIN:6443
+
+  tasks:
+    - name: Ensure .kube/clusters directory exists
+      ansible.builtin.file:
+        path: "{{ clusters_dir }}"
+        state: directory
+        mode: '0700'
+
+    - name: Transform and write cluster kubeconfigs
+      ansible.builtin.shell: |
+        yq eval '
+          .clusters[0].name = "{{ item.name }}" |
+          .clusters[0].cluster.server = "https://{{ item.api_server }}" |
+          .contexts[0].name = "{{ item.name }}" |
+          .contexts[0].context.cluster = "{{ item.name }}" |
+          .contexts[0].context.user = "{{ item.name }}" |
+          .users[0].name = "{{ item.name }}" |
+          .current-context = "{{ item.name }}"
+        ' {{ item.raw_file }} > {{ clusters_dir }}/{{ item.name }}.yaml
+      loop: "{{ kubeconfigs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+
+    - name: Set restrictive permissions on cluster kubeconfigs
+      ansible.builtin.file:
+        path: "{{ clusters_dir }}/{{ item.name }}.yaml"
+        mode: '0600'
+      loop: "{{ kubeconfigs }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Clean up raw kubeconfig files
+      ansible.builtin.file:
+        path: "{{ item.raw_file }}"
+        state: absent
+      loop: "{{ kubeconfigs }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Display available contexts
+      ansible.builtin.command: kubectl config get-contexts
+      register: contexts_output
+      changed_when: false
+
+    - name: Show configured contexts
+      ansible.builtin.debug:
+        msg: "{{ contexts_output.stdout_lines }}"
+
+    - name: Display current context
+      ansible.builtin.command: kubectl config current-context
+      register: current_context
+      changed_when: false
+      failed_when: false
+
+    - name: Show current context
+      ansible.builtin.debug:
+        msg: |
+          Current context: {{ current_context.stdout if current_context.rc == 0 else 'None set' }}
+
+          Cluster configs written to: {{ clusters_dir }}/
+
+          To switch contexts:
+            kubectl config use-context home-k3s
+            kubectl config use-context zapp-k3d
+
+          Or use kubectx (if installed):
+            kubectx home-k3s
+            kubectx zapp-k3d

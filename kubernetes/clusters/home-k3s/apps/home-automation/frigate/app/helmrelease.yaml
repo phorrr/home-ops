@@ -1,0 +1,121 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: frigate
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: frigate
+  interval: 30m
+  values:
+    controllers:
+      frigate:
+        pod:
+          resourceClaims:
+            - name: gpu
+              resourceClaimTemplateName: frigate-gpu
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/blakeblackshear/frigate
+              tag: 0.16.2@sha256:4041ad318224500cf9513c513b1bb927d9dd252f63bbd3d11c92006c1172c86c
+            envFrom:
+              - secretRef:
+                  name: frigate-secret
+            probes:
+              liveness: &probes
+                enabled: false
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/version
+                    port: 5000
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+            resources:
+              claims:
+                - name: gpu
+              requests:
+                cpu: 200m
+                memory: 2Gi
+              limits:
+                memory: 8Gi
+    service:
+      frigate:
+        type: LoadBalancer
+        annotations:
+          lbipam.cilium.io/ips: 10.33.3.6
+        ports:
+          http:
+            appProtocol: kubernetes.io/wss
+            port: 5000
+          go2rtc:
+            primary: true
+            port: 1984
+          rtsp:
+            port: 8554
+          webrtc-tcp:
+            port: 8555
+            protocol: TCP
+          webrtc-udp:
+            port: 8555
+            protocol: UDP
+    persistence:
+      config:
+        existingClaim: frigate
+      # config-file:
+      #   type: secret
+      #   name: frigate-secrets
+      #   globalMounts:
+      #     - path: /config/config.yaml
+      #       subPath: config.yaml
+      media:
+        type: nfs
+        path: /mnt/tank/Apps/frigate
+        server: REDACTED_HOSTNAME
+        globalMounts:
+          - path: /media/frigate
+      cache:
+        enabled: true
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 2Gi
+        globalMounts:
+          - path: /dev/shm
+      tmpfs:
+        type: emptyDir
+        advancedMounts:
+          frigate:
+            app:
+              - path: /tmp
+                subPath: tmp
+    route:
+      frigate:
+        hostnames:
+          - REDACTED_HOSTNAME
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+
+        rules:
+          - backendRefs:
+              - identifier: frigate
+                port: 5000
+      go2rtc:
+        hostnames:
+          - REDACTED_HOSTNAME
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+
+        rules:
+          - backendRefs:
+              - identifier: frigate
+                port: 1984

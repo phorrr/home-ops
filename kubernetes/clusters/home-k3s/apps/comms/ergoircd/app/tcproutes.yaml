@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/gateway.networking.k8s.io/tcproute_v1alpha2.json
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: ergoircd-irc
+  namespace: comms
+spec:
+  parentRefs:
+    - name: external
+      namespace: network
+      sectionName: irc
+  rules:
+    - backendRefs:
+        - name: ergoircd
+          port: 6667
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/gateway.networking.k8s.io/tcproute_v1alpha2.json
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: ergoircd-irc-tls
+  namespace: comms
+spec:
+  parentRefs:
+    - name: external
+      namespace: network
+      sectionName: irc-tls
+  rules:
+    - backendRefs:
+        - name: ergoircd
+          port: 6697

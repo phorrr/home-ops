@@ -1,0 +1,33 @@
+---
+metrics: true
+debug: false
+
+storage:
+  type: postgres
+  path: ${DB_URI}
+  caching: true
+
+ui:
+  title: Status | Gatus
+  header: Status
+
+web:
+  port: ${CUSTOM_WEB_PORT}
+
+connectivity:
+  checker:
+    target: REDACTED_PUBLIC_IP:53
+    interval: 1m
+
+endpoints:
+  - name: flux-webhook
+    group: external
+    ui:
+      hide-hostname: true
+      hide-url: true
+    url: https://flux-webhook-home-k3s.${DOMAIN}
+    interval: 1m
+    client:
+      dns-resolver: tcp://REDACTED_PUBLIC_IP:53
+    conditions:
+      - "[STATUS] == 404"

@@ -1,0 +1,59 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: authelia-init
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: authelia-configmap-reader
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+    # ClusterRole is required to allow discovery of auth-rules ConfigMaps across all namespaces.
+    # The k8s-sidecar container filters to only process ConfigMaps with 'authelia.com/auth-rules=true' label.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: authelia-configmap-writer
+  namespace: auth
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "update", "patch"]
+    resourceNames: ["authelia-auth-rules"]
+    # ConfigMap is created by Flux, watcher only needs to update it
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["referencegrants"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+    # Allow managing ReferenceGrants for cross-namespace SecurityPolicy access
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: authelia-configmap-reader
+subjects:
+  - kind: ServiceAccount
+    name: authelia-init
+    namespace: auth
+roleRef:
+  kind: ClusterRole
+  name: authelia-configmap-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: authelia-configmap-writer
+  namespace: auth
+subjects:
+  - kind: ServiceAccount
+    name: authelia-init
+    namespace: auth
+roleRef:
+  kind: Role
+  name: authelia-configmap-writer
+  apiGroup: rbac.authorization.k8s.io

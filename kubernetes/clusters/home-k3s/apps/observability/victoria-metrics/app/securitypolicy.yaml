@@ -1,0 +1,28 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: victoria-metrics-ip-filter
+  namespace: observability
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: victoria-metrics-dashboard
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: vmalertmanager
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: allow-internal-clients
+        action: Allow
+        principal:
+          clientCIDRs:
+            # Local client network
+            - REDACTED_PRIVATE_IP/24
+            # REDACTED_INFRASTRUCTURE_NAME
+            - REDACTED_PRIVATE_IP/32
+            # REDACTED_INFRASTRUCTURE_NAME
+            - REDACTED_PRIVATE_IP/32

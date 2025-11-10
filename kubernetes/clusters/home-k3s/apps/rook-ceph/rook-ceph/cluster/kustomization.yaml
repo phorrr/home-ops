@@ -1,0 +1,11 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/kustomization
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./replication-destinations.yaml
+  - ./replication-secrets.yaml
+  #  - ./pvc-volsync-patch.yaml
+  #  - ./pvc-volsync-patch-binding.yaml
+  - ./helmrelease.yaml
+  - ./httproute.yaml

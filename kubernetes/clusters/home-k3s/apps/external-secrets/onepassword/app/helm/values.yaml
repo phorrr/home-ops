@@ -1,0 +1,14 @@
+connect:
+  api:
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+    resources:
+      requests:
+        cpu: 10m
+        memory: 100Mi
+      limits:
+        memory: 200Mi
+  credentialsName: onepassword-secret
+  credentialsKey: 1password-credentials.json
+  serviceType: ClusterIP

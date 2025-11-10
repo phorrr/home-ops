@@ -1,0 +1,41 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app ergoircd
+  namespace: &namespace comms
+  labels:
+    has-custom-substitutions: "true"
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  components:
+    - ../../../../../../shared/components/volsync
+  dependsOn:
+    - name: onepassword
+      namespace: external-secrets
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  interval: 30m
+  path: ./kubernetes/clusters/home-k3s/apps/comms/ergoircd/app
+  postBuild:
+    substitute:
+      APP: *app
+      NS: *namespace
+    substituteFrom:
+      - kind: Secret
+        name: cluster-vars
+        optional: false
+      - kind: Secret
+        name: ergoircd
+        optional: false
+  prune: true
+  retryInterval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: *namespace
+  timeout: 5m
+  wait: false

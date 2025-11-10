@@ -1,0 +1,81 @@
+---
+# Example: SecurityPolicy with group restrictions
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: app-admin-only
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: admin-app
+  extAuth:
+    headersToExtAuth:
+      - Cookie
+      - X-Forwarded-Host
+      - X-Forwarded-Proto
+      - X-Forwarded-For
+    http:
+      backendRefs:
+        - name: authelia
+          namespace: auth
+          port: 80
+      # Require membership in 'admins' group (configured in Authelia access_control)
+      path: /api/authz/ext-authz/
+      headersToBackend:
+        - remote-*
+        - authelia-*
+---
+# Example: Multiple groups allowed
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: app-staff-access
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: staff-app
+  extAuth:
+    headersToExtAuth:
+      - Cookie
+      - X-Forwarded-Host
+      - X-Forwarded-Proto
+      - X-Forwarded-For
+    http:
+      backendRefs:
+        - name: oauth2-proxy
+          namespace: auth
+          port: 4180
+      # Allow 'admins' OR 'developers' groups
+      path: /oauth2/auth?allowed_groups=admins,developers
+      headersToBackend:
+        - remote-*
+        - authelia-*
+---
+# Example: Combine groups with email domains
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: app-restricted
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: restricted-app
+  extAuth:
+    headersToExtAuth:
+      - Cookie
+      - X-Forwarded-Host
+      - X-Forwarded-Proto
+      - X-Forwarded-For
+    http:
+      backendRefs:
+        - name: oauth2-proxy
+          namespace: auth
+          port: 4180
+      # Require 'vip' group AND email from company.com domain
+      path: /oauth2/auth?allowed_groups=vip&allowed_email_domains=company.com
+      headersToBackend:
+        - remote-*
+        - authelia-*

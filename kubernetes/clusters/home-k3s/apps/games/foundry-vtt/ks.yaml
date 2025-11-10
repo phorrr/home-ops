@@ -1,0 +1,39 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app foundry-vtt
+  namespace: &namespace games
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  components:
+    - ../../../../../../shared/components/volsync
+    - ../../../../../../shared/components/gatus/external
+  dependsOn:
+    - name: onepassword
+      namespace: external-secrets
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  interval: 30m
+  path: ./kubernetes/clusters/home-k3s/apps/games/foundry-vtt/app
+  postBuild:
+    substitute:
+      APP: *app
+      VOLSYNC_CAPACITY: 50Gi
+      GATEWAY_DOMAIN: ${DOMAIN}
+      GATEWAY_NAME: external
+      AUTHELIA_GROUP: foundry-vtt
+      AUTHELIA_HTTPROUTE: foundry-vtt-app
+      AUTHELIA_SUBDOMAIN: vtt
+      GATUS_SUBDOMAIN: vtt
+  prune: true
+  retryInterval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: *namespace
+  timeout: 5m
+  wait: false
