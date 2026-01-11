@@ -1,0 +1,84 @@
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: "rook-ceph-mon-a-bootstrap"
+  namespace: rook-ceph
+  labels:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+spec:
+  trigger:
+    manual: restore-once
+  restic:
+    repository: "rook-ceph-mon-a-volsync-secret"
+    copyMethod: Snapshot
+    volumeSnapshotClassName: "zfs-local-dataset"
+    cacheStorageClassName: "zfs-local-dataset"
+    cacheAccessModes: ["ReadWriteOnce"]
+    cacheCapacity: "2Gi"
+    storageClassName: "zfs-local-dataset"
+    accessModes: ["ReadWriteOnce"]
+    capacity: "10Gi"
+    moverSecurityContext:
+      runAsUser: 167
+      runAsGroup: 167
+      fsGroup: 167
+    enableFileDeletion: true
+    cleanupCachePVC: true
+    cleanupTempPVC: true
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: "rook-ceph-mon-b-bootstrap"
+  namespace: rook-ceph
+  labels:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+spec:
+  trigger:
+    manual: restore-once
+  restic:
+    repository: "rook-ceph-mon-b-volsync-secret"
+    copyMethod: Snapshot
+    volumeSnapshotClassName: "zfs-local-dataset"
+    cacheStorageClassName: "zfs-local-dataset"
+    cacheAccessModes: ["ReadWriteOnce"]
+    cacheCapacity: "2Gi"
+    storageClassName: "zfs-local-dataset"
+    accessModes: ["ReadWriteOnce"]
+    capacity: "10Gi"
+    moverSecurityContext:
+      runAsUser: 167
+      runAsGroup: 167
+      fsGroup: 167
+    enableFileDeletion: true
+    cleanupCachePVC: true
+    cleanupTempPVC: true
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: "rook-ceph-mon-c-bootstrap"
+  namespace: rook-ceph
+  labels:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+spec:
+  trigger:
+    manual: restore-once
+  restic:
+    repository: "rook-ceph-mon-c-volsync-secret"
+    copyMethod: Snapshot
+    volumeSnapshotClassName: "zfs-local-dataset"
+    cacheStorageClassName: "zfs-local-dataset"
+    cacheAccessModes: ["ReadWriteOnce"]
+    cacheCapacity: "2Gi"
+    storageClassName: "zfs-local-dataset"
+    accessModes: ["ReadWriteOnce"]
+    capacity: "10Gi"
+    moverSecurityContext:
+      runAsUser: 167
+      runAsGroup: 167
+      fsGroup: 167
+    enableFileDeletion: true
+    cleanupCachePVC: true
+    cleanupTempPVC: true

@@ -1,0 +1,268 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app forgejo
+  labels:
+    secret: &secret forgejo-secret
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: forgejo
+    namespace: flux-system
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    strategy:
+      type: Recreate
+    image:
+      rootless: true
+    containerSecurityContext:
+      capabilities:
+        add: ["SYS_CHROOT"]
+
+    gitea:
+      # No local admin - use OIDC with adminGroup instead
+      admin:
+        existingSecret: ""
+      config:
+        APP_NAME: "Forgejo"
+        database:
+          DB_TYPE: postgres
+          HOST: postgres17-rw.database.svc.cluster.local:5432
+        server:
+          DOMAIN: forge.${DOMAIN}
+          SSH_PORT: 22
+          SSH_LISTEN_PORT: 2222
+          SSH_DOMAIN: forge.${DOMAIN}
+          ROOT_URL: https://forge.${DOMAIN}
+          LANDING_PAGE: login
+        repository:
+          DEFAULT_BRANCH: main
+          DEFAULT_PRIVATE: true
+        admin:
+          DISABLE_REGULAR_ORG_CREATION: true
+        service:
+          ALLOW_ONLY_EXTERNAL_REGISTRATION: true
+          DEFAULT_KEEP_EMAIL_PRIVATE: true
+          DISABLE_REGISTRATION: true
+          ENABLE_PASSWORD_SIGNIN: false
+          SHOW_REGISTRATION_BUTTON: false
+          REQUIRE_SIGNIN_VIEW: true
+        cron:
+          ENABLED: true
+        storage: &s3storage
+          STORAGE_TYPE: minio
+          MINIO_ENDPOINT: s3.${INTERNAL_DOMAIN}
+          MINIO_BUCKET: forgejo
+          MINIO_LOCATION: us-east-1
+          MINIO_USE_SSL: true
+        attachment: *s3storage
+        packages: *s3storage
+        lfs: *s3storage
+        cache:
+          ADAPTER: redis
+        queue:
+          TYPE: redis
+        session:
+          PROVIDER: redis
+        openid:
+          ENABLE_OPENID_SIGNIN: false
+          ENABLE_OPENID_SIGNUP: true
+          UPDATE_AVATAR: true
+          WHITELISTED_URIS: auth.${DOMAIN}
+        oauth2_client:
+          ENABLE_AUTO_REGISTRATION: true
+          ACCOUNT_LINKING: auto
+          USERNAME: preferred_username
+          UPDATE_AVATAR: true
+          OPENID_CONNECT_SCOPES: openid email profile groups
+        other:
+          SHOW_FOOTER_TEMPLATE_LOAD_TIME: false
+        time:
+          DEFAULT_UI_LOCATION: ${TZ}
+        ui:
+          SHOW_USER_EMAIL: false
+        webhook:
+          ALLOWED_HOST_LIST: "*.${DOMAIN},*.${INTERNAL_DOMAIN}"
+        actions:
+          ENABLED: true
+          DEFAULT_ACTIONS_URL: github
+      oauth:
+        - name: Authelia
+          provider: openidConnect
+          existingSecret: *secret
+          autoDiscoverUrl: https://auth.${DOMAIN}/.well-known/openid-configuration
+          groupClaimName: groups
+          adminGroup: forgejo_admin
+          restrictedGroup: forgejo
+          iconUrl: https://www.authelia.com/images/branding/logo-cropped.png
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+
+    persistence:
+      enabled: true
+      mount: true
+      create: false
+      claimName: forgejo
+
+    service:
+      http:
+        port: 3000
+      ssh:
+        type: ClusterIP
+        port: 22
+
+    # Anubis runs as a sidecar and receives HTTP traffic
+    extraContainers:
+      - name: anubis
+        image: ghcr.io/techarohq/anubis:latest
+        ports:
+          - containerPort: 8923
+            name: http
+          - containerPort: 9090
+            name: metrics
+        env:
+          - name: TARGET
+            value: "http://localhost:3000"
+          - name: BIND
+            value: ":8923"
+          - name: DIFFICULTY
+            value: "4"
+          - name: COOKIE_DOMAIN
+            value: "forge.${DOMAIN}"
+          - name: SERVE_ROBOTS_TXT
+            value: "true"
+          - name: POLICY_FNAME
+            value: "/etc/anubis/policies.yaml"
+          - name: USE_REMOTE_ADDRESS
+            value: "true"
+          - name: ED25519_PRIVATE_KEY_HEX
+            valueFrom:
+              secretKeyRef:
+                name: forgejo-secret
+                key: ANUBIS_PRIVATE_KEY
+        volumeMounts:
+          - name: anubis-policies
+            mountPath: /etc/anubis
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+
+    extraVolumes:
+      - name: anubis-policies
+        configMap:
+          name: anubis-policies
+
+    # We create our own HTTPRoute pointing to Anubis
+    httpRoute:
+      enabled: false
+
+  valuesFrom:
+    # S3 credentials from ObjectBucketClaim
+    - targetPath: gitea.config.storage.MINIO_ACCESS_KEY_ID
+      kind: Secret
+      name: forgejo  # OBC creates secret with same name
+      valuesKey: AWS_ACCESS_KEY_ID
+    - targetPath: gitea.config.storage.MINIO_SECRET_ACCESS_KEY
+      kind: Secret
+      name: forgejo
+      valuesKey: AWS_SECRET_ACCESS_KEY
+    - targetPath: gitea.config.attachment.MINIO_ACCESS_KEY_ID
+      kind: Secret
+      name: forgejo
+      valuesKey: AWS_ACCESS_KEY_ID
+    - targetPath: gitea.config.attachment.MINIO_SECRET_ACCESS_KEY
+      kind: Secret
+      name: forgejo
+      valuesKey: AWS_SECRET_ACCESS_KEY
+    - targetPath: gitea.config.packages.MINIO_ACCESS_KEY_ID
+      kind: Secret
+      name: forgejo
+      valuesKey: AWS_ACCESS_KEY_ID
+    - targetPath: gitea.config.packages.MINIO_SECRET_ACCESS_KEY
+      kind: Secret
+      name: forgejo
+      valuesKey: AWS_SECRET_ACCESS_KEY
+    - targetPath: gitea.config.lfs.MINIO_ACCESS_KEY_ID
+      kind: Secret
+      name: forgejo
+      valuesKey: AWS_ACCESS_KEY_ID
+    - targetPath: gitea.config.lfs.MINIO_SECRET_ACCESS_KEY
+      kind: Secret
+      name: forgejo
+      valuesKey: AWS_SECRET_ACCESS_KEY
+    # Database credentials from CNPG component
+    - targetPath: gitea.config.database.NAME
+      kind: Secret
+      name: forgejo-pguser-secret
+      valuesKey: db
+    - targetPath: gitea.config.database.USER
+      kind: Secret
+      name: forgejo-pguser-secret
+      valuesKey: user
+    - targetPath: gitea.config.database.PASSWD
+      kind: Secret
+      name: forgejo-pguser-secret
+      valuesKey: password
+    # Redis from our ExternalSecret
+    - targetPath: gitea.config.cache.HOST
+      kind: Secret
+      name: *secret
+      valuesKey: REDIS_URL
+    - targetPath: gitea.config.queue.CONN_STR
+      kind: Secret
+      name: *secret
+      valuesKey: REDIS_URL
+    - targetPath: gitea.config.session.PROVIDER_CONFIG
+      kind: Secret
+      name: *secret
+      valuesKey: REDIS_URL
+    # Security tokens from our ExternalSecret
+    - targetPath: gitea.config.security.SECRET_KEY
+      kind: Secret
+      name: *secret
+      valuesKey: FORGEJO_SECRET_KEY
+    - targetPath: gitea.config.security.INTERNAL_TOKEN
+      kind: Secret
+      name: *secret
+      valuesKey: FORGEJO_INTERNAL_TOKEN
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: forgejo
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: forgejo
+              spec:
+                template:
+                  spec:
+                    initContainers:
+                      - name: init-db
+                        image: ghcr.io/home-operations/postgres-init:18
+                        envFrom:
+                          - secretRef:
+                              name: forgejo-initdb-secret

@@ -1,0 +1,13 @@
+endpoints:
+  - name: "${APP}"
+    group: guarded
+    url: REDACTED_PUBLIC_IP
+    interval: 1m
+    ui:
+      hide-hostname: true
+      hide-url: true
+    dns:
+      query-name: "${GATUS_SUBDOMAIN:=${APP}}.${INTERNAL_DOMAIN}"
+      query-type: A
+    conditions:
+      - "len([BODY]) == 0"

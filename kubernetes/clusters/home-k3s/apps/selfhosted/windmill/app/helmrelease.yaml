@@ -1,0 +1,108 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: windmill
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: windmill
+      version: 4.0.24
+      sourceRef:
+        kind: HelmRepository
+        name: windmill
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    windmill:
+      baseDomain: REDACTED_DOMAIN
+      baseProtocol: https
+      appReplicas: 1
+      lspReplicas: 1
+      multiplayerReplicas: 0
+      lsp:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+      app:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        resources:
+          requests:
+            memory: 1Gi
+          limits:
+            memory: 2Gi
+        initContainers:
+          - name: 01-init-db
+            image: ghcr.io/home-operations/postgres-init:18
+            envFrom: &envFrom
+              - secretRef:
+                  name: windmill-initdb-secret
+          - name: 02-init-grants
+            image: ghcr.io/home-operations/postgres-init:18
+            command:
+              - /bin/bash
+              - -c
+              - |
+                #!/bin/bash
+                set -o errexit
+                set -o nounset
+                /var/run/grants.sh
+            envFrom: *envFrom
+            volumeMounts:
+              - name: grants
+                readOnly: true
+                subPath: grants.sh
+                mountPath: /var/run/grants.sh
+        volumes:
+          - name: grants
+            configMap:
+              name: windmill-grants
+              defaultMode: 0755
+          - name: oauth-config
+            secret:
+              secretName: windmill-oauth-secret
+        volumeMounts:
+          - name: oauth-config
+            mountPath: /etc/windmill/oauth.json
+            subPath: oauth.json
+            readOnly: true
+      workerGroups:
+        - name: default
+          replicas: 1
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+        - name: native
+          replicas: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+    ingress:
+      enabled: false
+    postgresql:
+      enabled: false
+    minio:
+      enabled: false
+  valuesFrom:
+    - kind: Secret
+      name: windmill-pguser-secret
+      valuesKey: uri
+      targetPath: windmill.databaseUrl

@@ -1,0 +1,94 @@
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: beets-import
+spec:
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 1
+    ttlSecondsAfterFinished: 3600
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/name: beets-import
+          app.kubernetes.io/triggered-by: keda
+      spec:
+        restartPolicy: Never
+        automountServiceAccountToken: false
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          fsGroupChangePolicy: OnRootMismatch
+        containers:
+          - name: beets
+            image: lscr.io/linuxserver/beets:latest
+            command: ["/scripts/beets-import.sh"]
+            env:
+              - name: TZ
+                value: ${TZ}
+              - name: REDIS_HOST
+                value: REDACTED_REDIS_HOST
+              - name: REDIS_PORT
+                value: "6379"
+              - name: QUEUE_NAME
+                value: beets-import-queue
+            volumeMounts:
+              - name: scripts
+                mountPath: /scripts
+                readOnly: true
+              - name: config
+                mountPath: /config
+              - name: config-file
+                mountPath: /config/config.yaml
+                subPath: config.yaml
+                readOnly: true
+              - name: music
+                mountPath: /music
+              - name: downloads
+                mountPath: /music-incoming
+            resources:
+              requests:
+                cpu: 10m
+                memory: 256Mi
+              limits:
+                memory: 2Gi
+            securityContext:
+              runAsUser: 1000
+              runAsGroup: 1000
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+        volumes:
+          - name: scripts
+            configMap:
+              name: beets-import-scripts
+              defaultMode: 0755
+          - name: config
+            persistentVolumeClaim:
+              claimName: beets
+          - name: config-file
+            configMap:
+              name: beets-configmap
+          - name: music
+            persistentVolumeClaim:
+              claimName: music
+          - name: downloads
+            persistentVolumeClaim:
+              claimName: music-incoming
+  pollingInterval: 10
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  triggers:
+    - type: redis
+      metadata:
+        address: REDACTED_REDIS_ADDRESS
+        listName: beets-import-queue
+        listLength: "1"

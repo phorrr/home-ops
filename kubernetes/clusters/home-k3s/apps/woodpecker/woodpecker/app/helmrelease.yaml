@@ -1,0 +1,98 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app woodpecker
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: woodpecker
+    namespace: flux-system
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    server:
+      env:
+        # Forgejo forge configuration
+        WOODPECKER_FORGEJO: "true"
+        WOODPECKER_FORGEJO_URL: https://forge.${DOMAIN}
+        # Server configuration
+        WOODPECKER_HOST: https://ci.${DOMAIN}
+        WOODPECKER_ADMIN: REDACTED_NAME
+        WOODPECKER_OPEN: "false"
+        WOODPECKER_DATABASE_DRIVER: postgres
+        # Disable user agent registration (only admin can register agents)
+        WOODPECKER_DISABLE_USER_AGENT_REGISTRATION: "true"
+        # Use authentication even for public repos (required since Forgejo requires signin)
+        WOODPECKER_AUTHENTICATE_PUBLIC_REPOS: "true"
+      extraSecretNamesForEnvFrom:
+        - woodpecker-secret
+      persistentVolume:
+        enabled: false
+      resources:
+        requests:
+          cpu: 10m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+
+    agent:
+      env:
+        WOODPECKER_SERVER: "woodpecker-server:9000"
+        WOODPECKER_BACKEND: kubernetes
+        WOODPECKER_MAX_WORKFLOWS: "4"
+        WOODPECKER_BACKEND_K8S_NAMESPACE: woodpecker
+        WOODPECKER_BACKEND_K8S_STORAGE_CLASS: ceph-filesystem-replicated
+        WOODPECKER_BACKEND_K8S_VOLUME_SIZE: 10Gi
+        WOODPECKER_BACKEND_K8S_STORAGE_RWX: "true"
+        WOODPECKER_CONNECT_RETRY_COUNT: "1"
+        # Schedule pipeline pods on gVisor-enabled nodes
+        # Kyverno policy automatically injects runtimeClassName: gvisor
+        WOODPECKER_BACKEND_K8S_POD_NODE_SELECTOR: '{"gvisor": "enabled"}'
+        WOODPECKER_BACKEND_K8S_PULL_SECRET_NAMES: forgejo-registry
+      extraSecretNamesForEnvFrom:
+        - woodpecker-secret
+      persistence:
+        enabled: true
+        size: 128Mi
+        storageClass: ceph-block-replicated
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+
+  valuesFrom:
+    # Database datasource from CNPG component
+    - targetPath: server.env.WOODPECKER_DATABASE_DATASOURCE
+      kind: Secret
+      name: woodpecker-pguser-secret
+      valuesKey: uri
+
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: StatefulSet
+              name: woodpecker-server
+            patch: |
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: woodpecker-server
+              spec:
+                template:
+                  spec:
+                    initContainers:
+                      - name: init-db
+                        image: ghcr.io/home-operations/postgres-init:18
+                        envFrom:
+                          - secretRef:
+                              name: woodpecker-initdb-secret

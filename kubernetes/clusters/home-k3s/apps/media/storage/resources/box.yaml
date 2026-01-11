@@ -1,0 +1,139 @@
+---
+#
+# This file defines three Kubernetes resources:
+# 1. ConfigMap: To store your SSH public key for secure access.
+# 2. Deployment: To run a Debian pod with an SSH server and all the necessary storage mounts.
+# 3. Service: To expose the SSH server to your network.
+#
+---
+# ### 1. SSH Authorized Keys ConfigMap
+#
+# This ConfigMap contains your SSH public key, allowing you to securely SSH into the pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: box-authorized-keys
+  namespace: media
+data:
+  authorized_keys: REDACTED_SSH_PUBLIC_KEY
+---
+# ### 2. Box Deployment
+#
+# This deployment creates the 'box' pod.
+# It uses the debian:bookworm image, installs an SSH server, and mounts all the specified volumes.
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: box
+  namespace: media
+  labels:
+    app: box
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: box
+  template:
+    metadata:
+      labels:
+        app: box
+    spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: box
+          image: debian:bookworm
+          # This command updates the package list, installs the OpenSSH server,
+          # creates the necessary sshd directory, and starts the SSH daemon in the foreground.
+          # umask 002 ensures files are created with group write permission.
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              apt-get update &&
+              apt-get install -y openssh-server rsync &&
+              mkdir -p /var/run/sshd &&
+              echo "session optional pam_umask.so umask=002" >> /etc/pam.d/sshd &&
+              umask 002 &&
+              /usr/sbin/sshd -D -e
+          ports:
+            - name: ssh
+              containerPort: 22
+              protocol: TCP
+          volumeMounts:
+            # PVCs under /pvc
+            - name: pvc-audiobooks
+              mountPath: /pvc/audiobooks
+            - name: pvc-podcasts
+              mountPath: /pvc/podcasts
+            - name: pvc-books
+              mountPath: /pvc/books
+            - name: pvc-media
+              mountPath: /pvc/media
+            - name: pvc-music
+              mountPath: /pvc/music
+            - name: pvc-music-incoming
+              mountPath: /pvc/music-incoming
+            # NFS mount for music migration (read-only)
+            - name: nfs-music
+              mountPath: /nfs/music
+              readOnly: true
+            - name: authorized-keys-volume
+              mountPath: /root/.ssh/authorized_keys
+              subPath: authorized_keys
+              readOnly: true
+      volumes:
+        # PVCs
+        - name: pvc-audiobooks
+          persistentVolumeClaim:
+            claimName: audiobooks
+        - name: pvc-podcasts
+          persistentVolumeClaim:
+            claimName: podcasts
+        - name: pvc-books
+          persistentVolumeClaim:
+            claimName: books
+        - name: pvc-media
+          persistentVolumeClaim:
+            claimName: media
+        - name: pvc-music
+          persistentVolumeClaim:
+            claimName: music
+        - name: pvc-music-incoming
+          persistentVolumeClaim:
+            claimName: music-incoming
+        # NFS mount for music migration (old NAS)
+        - name: nfs-music
+          nfs:
+            server: REDACTED_PRIVATE_IP
+            path: "/mnt/user/music"
+        # SSH authorized keys
+        - name: authorized-keys-volume
+          configMap:
+            name: box-authorized-keys
+---
+# ### 3. SSH Service
+#
+# This service exposes the SSH port of the 'box' pod.
+# Using type: LoadBalancer will assign an external IP address, making it accessible
+# from your local network. This requires a load balancer implementation in your
+# cluster (e.g., MetalLB for on-premise setups).
+#
+# If you don't have a load balancer, you can change the type to 'NodePort'
+# and access the pod via the node's IP and the assigned node port.
+#
+apiVersion: v1
+kind: Service
+metadata:
+  name: box-ssh
+  namespace: media
+spec:
+  type: LoadBalancer
+  selector:
+    app: box
+  ports:
+    - name: ssh
+      protocol: TCP
+      port: 22
+      targetPort: 22

@@ -1,0 +1,28 @@
+---
+- name: Apply baseline system configuration to all nodes
+  hosts: all
+  become: true
+  become_method: sudo
+  roles:
+    - baseline
+
+- name: Configure K3s nodes
+  hosts: controllers
+  become: true
+  become_method: sudo
+  roles:
+    - configure-k3s-nodes
+
+- name: Configure zigbee coordinator
+  hosts: zigbee
+  become: true
+  become_method: sudo
+  roles:
+    - zigbee
+
+- name: Configure telegraf on standalone devices
+  hosts: standalone_devices
+  become: true
+  become_method: sudo
+  roles:
+    - telegraf

@@ -1,0 +1,35 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app beets
+  namespace: &namespace media
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  components:
+    - ../../../../../../shared/components/volsync
+  dependsOn:
+    - name: slskd
+      namespace: media
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  interval: 30m
+  path: ./kubernetes/clusters/home-k3s/apps/media/beets/app
+  postBuild:
+    substitute:
+      APP: *app
+      VOLSYNC_SCHEDULE: "0 3 * * *"
+      VOLSYNC_ACCESSMODES: ReadWriteMany
+      VOLSYNC_STORAGECLASS: ceph-filesystem-replicated
+      VOLSYNC_SNAPSHOTCLASS: csi-ceph-fs
+  prune: true
+  retryInterval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: *namespace
+  timeout: 5m
+  wait: false

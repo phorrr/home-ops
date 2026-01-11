@@ -1,0 +1,49 @@
+---
+# Telegraf configuration defaults
+
+# VictoriaMetrics endpoint for metrics ingestion (via HTTPRoute)
+telegraf_influxdb_url: "https://REDACTED_DOMAIN"
+
+# Collection interval
+telegraf_interval: "30s"
+
+# Hostname override (defaults to inventory_hostname)
+telegraf_hostname: "{{ inventory_hostname }}"
+
+# Enable specific input plugins
+telegraf_enable_cpu: true
+telegraf_enable_mem: true
+telegraf_enable_disk: true
+telegraf_enable_diskio: true
+telegraf_enable_net: true
+telegraf_enable_system: true
+telegraf_enable_processes: true
+telegraf_enable_temp: true
+
+# USB device monitoring (for checking if specific devices are present)
+telegraf_usb_devices: []
+# Example:
+# telegraf_usb_devices:
+#   - name: "zigbee_adapter"
+#     vendor_id: "10c4"
+#     product_id: "ea60"
+
+# Disk paths to monitor
+telegraf_disk_mount_points:
+  - "/"
+
+# Network interfaces to monitor (empty = all)
+telegraf_net_interfaces: []
+
+# Systemd services to monitor
+telegraf_systemd_units: []
+# Example:
+# telegraf_systemd_units:
+#   - ser2net.service
+
+# TCP endpoints to monitor (net_response)
+telegraf_tcp_endpoints: []
+# Example:
+# telegraf_tcp_endpoints:
+#   - address: "localhost:2000"
+#     name: "ser2net"

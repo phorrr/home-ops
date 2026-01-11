@@ -1,0 +1,137 @@
+---
+# Playbook to deploy k3d clusters on Unraid nodes
+# Usage: ansible-playbook -i inventory.yaml deploy-k3d-clusters.yaml
+
+- name: Bootstrap Python on Unraid nodes
+  hosts: unraid_k3d_clusters
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Check if Python 3 is already installed
+      ansible.builtin.raw: "python3 --version"
+      register: python_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Python 3 and OpenSSL on Unraid (Slackware)
+      ansible.builtin.raw: |
+        if ! command -v python3 &> /dev/null; then
+          cd /tmp
+          # Install Python 3
+          wget https://slackware.uk/slackware/slackware64-15.0/slackware64/d/python3-3.9.10-x86_64-1.txz
+          installpkg python3-3.9.10-x86_64-1.txz
+          rm python3-3.9.10-x86_64-1.txz
+          # Install OpenSSL 1.1 for Python compatibility
+          wget https://slackware.uk/slackware/slackware64-15.0/slackware64/n/openssl-1.1.1m-x86_64-1.txz
+          installpkg openssl-1.1.1m-x86_64-1.txz
+          rm openssl-1.1.1m-x86_64-1.txz
+        fi
+      when: python_check.rc != 0
+      changed_when: python_check.rc != 0
+
+    - name: Check if Python SSL module works
+      ansible.builtin.raw: "python3 -c 'import ssl'"
+      register: python_ssl_check
+      changed_when: false
+      failed_when: false
+
+    - name: Download packages to /boot/extra for automatic installation
+      ansible.builtin.raw: |
+        mkdir -p /boot/extra
+        cd /boot/extra
+        # Download Python 3
+        [ -f python3-3.9.10-x86_64-1.txz ] || \
+          wget -q https://slackware.uk/slackware/slackware64-15.0/slackware64/d/python3-3.9.10-x86_64-1.txz
+        # Download OpenSSL 1.1
+        [ -f openssl-1.1.1m-x86_64-1.txz ] || \
+          wget -q https://slackware.uk/slackware/slackware64-15.0/slackware64/n/openssl-1.1.1m-x86_64-1.txz
+        # Download libffi
+        [ -f libffi-3.3-x86_64-3.txz ] || \
+          wget -q https://slackware.uk/slackware/slackware64-15.0/slackware64/l/libffi-3.3-x86_64-3.txz
+      changed_when: true
+
+    - name: Check if libffi is installed
+      ansible.builtin.raw: "python3 -c 'import _ctypes' 2>&1"
+      register: libffi_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install required dependencies now
+      ansible.builtin.raw: |
+        cd /boot/extra
+        # Install OpenSSL 1.1 if needed
+        if [ ! -f /usr/lib64/libssl.so.1.1 ]; then
+          installpkg openssl-1.1.1m-x86_64-1.txz
+        fi
+        # Install libffi if needed
+        if [ ! -f /usr/lib64/libffi.so.7 ]; then
+          installpkg libffi-3.3-x86_64-3.txz
+        fi
+      when: python_ssl_check.rc != 0 or libffi_check.rc != 0
+      changed_when: python_ssl_check.rc != 0 or libffi_check.rc != 0
+
+    - name: Verify Python 3 installation
+      ansible.builtin.raw: "python3 --version"
+      register: python_verify
+      changed_when: false
+      failed_when: python_verify.rc != 0
+
+- name: Deploy k3d clusters on Unraid nodes
+  hosts: unraid_k3d_clusters
+  gather_facts: true
+  become: false  # Unraid root user doesn't need sudo
+
+  pre_tasks:
+    - name: Display cluster information
+      ansible.builtin.debug:
+        msg:
+          - "Deploying k3d cluster: {{ k3d_cluster_name }}"
+          - "Host: {{ ansible_host }}"
+          - "Config directory: {{ k3d_config_dir }}"
+          - "k3d version: {{ k3d_version }}"
+          - "kubectl version: {{ kubectl_version }}"
+          - "flux version: {{ flux_version }}"
+
+    - name: Check Docker is running
+      ansible.builtin.command: docker info
+      changed_when: false
+      register: docker_check
+      failed_when: docker_check.rc != 0
+
+  roles:
+    - k3d-unraid
+
+  post_tasks:
+    - name: Wait for cluster to be ready
+      ansible.builtin.command: k3d cluster list
+      register: cluster_status
+      until: k3d_cluster_name in cluster_status.stdout and '1/1' in cluster_status.stdout
+      retries: 10
+      delay: 5
+      changed_when: false
+
+    - name: Get cluster kubeconfig
+      ansible.builtin.command: "k3d kubeconfig get {{ k3d_cluster_name }}"
+      register: kubeconfig_output
+      changed_when: false
+
+    - name: Display next steps
+      ansible.builtin.debug:
+        msg:
+          - "✓ k3d cluster '{{ k3d_cluster_name }}' is ready!"
+          - ""
+          - "Next steps:"
+          - "1. Merge kubeconfig to your local machine:"
+          - "   k3d kubeconfig merge {{ k3d_cluster_name }} --kubeconfig-merge-default"
+          - ""
+          - "2. Bootstrap Flux on the cluster (run from your local machine):"
+          - "   flux bootstrap github \\"
+          - "     --owner=REDACTED_NAME \\"
+          - "     --repository=home-ops \\"
+          - "     --branch=main \\"
+          - "     --path=kubernetes/clusters/{{ k3d_cluster_name }} \\"
+          - "     --personal"
+          - ""
+          - "3. Verify Flux installation:"
+          - "   kubectl --context k3d-{{ k3d_cluster_name }} get pods -n flux-system"

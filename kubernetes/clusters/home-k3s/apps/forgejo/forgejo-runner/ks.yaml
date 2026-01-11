@@ -1,0 +1,26 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app forgejo-runner
+  namespace: &namespace forgejo
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  dependsOn:
+    - name: forgejo
+      namespace: forgejo
+    - name: keda
+      namespace: kube-system
+  interval: 30m
+  path: ./kubernetes/clusters/home-k3s/apps/forgejo/forgejo-runner/app
+  prune: true
+  retryInterval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: *namespace
+  timeout: 5m
+  wait: false

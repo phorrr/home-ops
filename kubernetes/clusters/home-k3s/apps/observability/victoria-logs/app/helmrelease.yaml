@@ -1,0 +1,125 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app victoria-logs
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: victoria-logs-single
+  interval: 30m
+  maxHistory: 2
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    fullnameOverride: victoria-logs
+    server:
+      image:
+        tag: v0.27.0-victorialogs
+
+      enabled: true
+      name: server
+
+      # Storage configuration
+      persistentVolume:
+        enabled: true
+        storageClass: ceph-block-replicated
+        size: 50Gi
+        accessModes:
+          - ReadWriteOnce
+
+      # Resource limits
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 2Gi
+
+      # Security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Pod security
+      podSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+
+      # High availability
+      replicaCount: 1
+
+      # Service configuration
+      service:
+        type: ClusterIP
+        port: 9428
+        targetPort: 9428
+
+      # Configuration
+      extraArgs:
+        # 3-month retention
+        retentionPeriod: "3"
+        storageDataPath: "/storage"
+        loggerLevel: "INFO"
+        httpListenAddr: ":9428"
+        insert.maxFieldsPerLine: "1000"
+
+      # Environment variables
+      env: []
+
+      # Probes
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 9428
+        initialDelaySeconds: 20
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 9428
+        initialDelaySeconds: 5
+        periodSeconds: 15
+        timeoutSeconds: 5
+        failureThreshold: 3
+
+      # Node scheduling
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+
+      # Pod annotations
+      podAnnotations:
+        reloader.stakater.com/auto: "true"
+
+      # Service monitor for metrics
+      serviceMonitor:
+        enabled: true
+        port: 9428
+        path: /metrics
+        interval: 30s
+        scrapeTimeout: 10s
+        labels: {}
+        annotations: {}

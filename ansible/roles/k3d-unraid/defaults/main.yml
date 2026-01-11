@@ -1,0 +1,11 @@
+---
+# Default variables for k3d-unraid role
+# These can be overridden in inventory or playbook
+
+k3d_version: "5.7.4"
+kubectl_version: "1.31.3"
+flux_version: "2.4.0"
+
+# Default ports for HTTP/HTTPS
+k3d_http_port: 80
+k3d_https_port: 443

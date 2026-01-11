@@ -1,0 +1,131 @@
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: forgejo-runner
+spec:
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 1
+    ttlSecondsAfterFinished: 300
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/name: forgejo-runner
+          app.kubernetes.io/triggered-by: keda
+      spec:
+        runtimeClassName: gvisor
+        restartPolicy: Never
+        automountServiceAccountToken: false
+        securityContext:
+          runAsNonRoot: false
+          fsGroup: 1000
+          fsGroupChangePolicy: OnRootMismatch
+        initContainers:
+          # Native sidecar - runs alongside main container, terminates when job completes
+          - name: dind
+            image: docker:29-dind
+            restartPolicy: Always
+            env:
+              - name: DOCKER_TLS_CERTDIR
+                value: /certs
+            volumeMounts:
+              - name: dind-storage
+                mountPath: /var/lib/docker
+              - name: docker-certs
+                mountPath: /certs
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                memory: 4Gi
+            securityContext:
+              privileged: true
+          - name: register
+            image: code.forgejo.org/forgejo/runner:12.5.0
+            command:
+              - forgejo-runner
+              - register
+              - --no-interactive
+              - --token
+              - $(RUNNER_SECRET)
+              - --name
+              - keda-runner
+              - --instance
+              - http://forgejo-http.forgejo.svc.cluster.local:3000
+              - --labels
+              - docker:docker://node:20-bookworm,ubuntu-latest:docker://catthehacker/ubuntu:act-latest,ubuntu-22.04:docker://catthehacker/ubuntu:act-22.04
+            env:
+              - name: RUNNER_SECRET
+                valueFrom:
+                  secretKeyRef:
+                    name: forgejo-runner-secret
+                    key: RUNNER_SECRET
+            volumeMounts:
+              - name: runner-data
+                mountPath: /data
+            securityContext:
+              runAsUser: 1000
+              runAsGroup: 1000
+        containers:
+          - name: runner
+            image: code.forgejo.org/forgejo/runner:12.5.0
+            command:
+              - sh
+              - -c
+              - |
+                echo "Waiting for Docker TLS certs..."
+                while [ ! -f /certs/client/ca.pem ]; do sleep 1; done
+                echo "Certs found, waiting for Docker daemon (5s)..."
+                sleep 5
+                echo "Starting runner"
+                exec forgejo-runner one-job
+            env:
+              - name: DOCKER_HOST
+                value: tcp://localhost:2376
+              - name: DOCKER_TLS_VERIFY
+                value: "1"
+              - name: DOCKER_CERT_PATH
+                value: /certs/client
+            volumeMounts:
+              - name: runner-data
+                mountPath: /data
+              - name: docker-certs
+                mountPath: /certs
+                readOnly: true
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              runAsUser: 1000
+              runAsGroup: 1000
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+        volumes:
+          - name: runner-data
+            emptyDir: {}
+          - name: dind-storage
+            emptyDir: {}
+          - name: docker-certs
+            emptyDir: {}
+  pollingInterval: 30
+  minReplicaCount: 0
+  maxReplicaCount: 5
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  triggers:
+    - type: forgejo-runner
+      metadata:
+        name: "keda-runner"
+        address: "https://forge.${DOMAIN}"
+        global: "true"
+        labels: "docker,ubuntu-latest,ubuntu-22.04"
+      authenticationRef:
+        name: forgejo-runner-creds

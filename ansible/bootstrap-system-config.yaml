@@ -1,0 +1,9 @@
+---
+- name: Initial system setup with su
+  hosts: all
+  become: true
+  become_method: su
+  become_user: root
+  become_flags: "-s /bin/sh"
+  roles:
+    - baseline

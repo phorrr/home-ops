@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/kustomization
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: media
+components:
+  - ../../../../shared/components/common
+resources:
+  - ./storage/ks.yaml
+  - ./audiobookshelf/ks.yaml
+  - ./bazarr/ks.yaml
+  - ./calibre-downloader/ks.yaml
+  - ./flaresolverr/ks.yaml
+  - ./calibre-web-automated/ks.yaml
+  - ./prowlarr/ks.yaml
+  - ./sonarr/ks.yaml
+  - ./radarr/ks.yaml
+  - ./recyclarr/ks.yaml
+  - ./sabnzbd/ks.yaml
+  - ./qbittorrent/ks.yaml
+  - ./emby/ks.yaml
+  - ./janitorr/ks.yaml
+  - ./jellyfin/ks.yaml
+  - ./libation/ks.yaml
+  - ./jellyseerr/ks.yaml
+  - ./jellystat/ks.yaml
+  - ./cross-seed/ks.yaml
+  - ./beets/ks.yaml
+  - ./navidrome/ks.yaml
+  - ./slskd/ks.yaml
+  - ./watchstate/ks.yaml

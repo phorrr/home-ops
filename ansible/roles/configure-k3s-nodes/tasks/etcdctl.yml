@@ -1,0 +1,40 @@
+---
+- name: Create temporary directory for etcdctl download
+  become: true
+  ansible.builtin.file:
+    path: /tmp/etcd-download
+    state: directory
+    mode: "0755"
+
+- name: Download etcd release archive
+  become: true
+  ansible.builtin.get_url:
+    url: "https://github.com/etcd-io/etcd/releases/download/v{{ etcd_version | default('3.6.6') }}/etcd-v{{ etcd_version | default('3.6.6') }}-linux-amd64.tar.gz"
+    dest: /tmp/etcd-download/etcd.tar.gz
+    mode: "0644"
+
+- name: Extract etcdctl from archive
+  become: true
+  ansible.builtin.unarchive:
+    src: /tmp/etcd-download/etcd.tar.gz
+    dest: /tmp/etcd-download/
+    remote_src: true
+    extra_opts:
+      - --strip-components=1
+      - --no-same-owner
+      - --no-same-permissions
+    creates: /tmp/etcd-download/etcdctl
+
+- name: Install etcdctl to /usr/local/bin
+  become: true
+  ansible.builtin.copy:
+    src: /tmp/etcd-download/etcdctl
+    dest: /usr/local/bin/etcdctl
+    remote_src: true
+    mode: "0755"
+
+- name: Clean up etcd download directory
+  become: true
+  ansible.builtin.file:
+    path: /tmp/etcd-download
+    state: absent

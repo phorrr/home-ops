@@ -1,0 +1,61 @@
+---
+# ---------------------------------------------------------------------
+# Raspberry Pi config.txt settings for UART access
+# Bluetooth uses the same UART as the zigbee coordinator, so it must
+# be disabled to free up /dev/ttyAMA0
+# ---------------------------------------------------------------------
+- name: Enable UART in config.txt
+  become: true
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^#?enable_uart="
+    line: "enable_uart=1"
+    state: present
+  when: zigbee_enable_uart | bool
+  notify: reboot required
+
+- name: Disable Bluetooth overlay in config.txt
+  become: true
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^#?dtoverlay=disable-bt"
+    line: "dtoverlay=disable-bt"
+    state: present
+  when: zigbee_disable_bluetooth | bool
+  notify: reboot required
+
+- name: Disable WiFi overlay in config.txt
+  become: true
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^#?dtoverlay=disable-wifi"
+    line: "dtoverlay=disable-wifi"
+    state: present
+  when: zigbee_disable_wifi | bool
+  notify: reboot required
+
+# ---------------------------------------------------------------------
+# ser2net configuration
+# ---------------------------------------------------------------------
+- name: Install ser2net
+  become: true
+  ansible.builtin.apt:
+    name: ser2net
+    state: present
+
+- name: Configure ser2net for zigbee coordinator
+  become: true
+  ansible.builtin.template:
+    src: ser2net.yaml.j2
+    dest: /etc/ser2net.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart ser2net
+
+- name: Enable and start ser2net service
+  become: true
+  ansible.builtin.systemd:
+    name: ser2net
+    enabled: true
+    state: started

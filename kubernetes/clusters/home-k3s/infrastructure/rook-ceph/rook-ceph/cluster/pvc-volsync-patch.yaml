@@ -1,0 +1,39 @@
+---
+apiVersion: admissionregistration.k8s.io/v1alpha1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: pvc-volsync-patch
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["persistentvolumeclaims"]
+        scope: "Namespaced"
+  matchConditions:
+    - name: "is-rook-ceph-mon-pvc"
+      expression: >
+        object.metadata.namespace == 'rook-ceph' &&
+        has(object.metadata.labels) &&
+        object.metadata.labels['app.kubernetes.io/name'] == 'ceph-mon' &&
+        object.metadata.labels['app.kubernetes.io/part-of'] == 'rook-ceph' &&
+        'mon' in object.metadata.labels &&
+        !has(object.spec.dataSourceRef)
+  reinvocationPolicy: Never
+  mutations:
+    - patchType: "JSONPatch"
+      jsonPatch:
+        expression: >
+          [
+            JSONPatch{
+              op: "add",
+              path: "/spec/dataSourceRef",
+              value: Object.spec.dataSourceRef{
+                kind: "ReplicationDestination",
+                apiGroup: "volsync.backube",
+                name: "rook-ceph-mon-" + object.metadata.labels.mon + "-bootstrap"
+              }
+            }
+          ]

@@ -1,0 +1,32 @@
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMProbe
+metadata:
+  name: zigbee-coordinator
+spec:
+  jobName: blackbox-icmp
+  module: icmp
+  interval: 30s
+  scrapeTimeout: 10s
+  vmProberSpec:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      targets:
+        - zigbee.${INTERNAL_DOMAIN}
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMProbe
+metadata:
+  name: zapp-nfs
+spec:
+  jobName: blackbox-tcp
+  module: tcp_connect
+  interval: 30s
+  scrapeTimeout: 10s
+  vmProberSpec:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      targets:
+        - zapp.${INTERNAL_DOMAIN}:2049

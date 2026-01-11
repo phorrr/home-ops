@@ -1,0 +1,12 @@
+#!/bin/bash
+# Check for USB device presence
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+{% for device in telegraf_usb_devices %}
+# Check for {{ device.name }}
+if lsusb | grep -qi "{{ device.vendor_id }}:{{ device.product_id }}"; then
+    echo "usb_device_present,device={{ device.name }} value=1"
+else
+    echo "usb_device_present,device={{ device.name }} value=0"
+fi
+{% endfor %}

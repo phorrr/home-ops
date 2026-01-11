@@ -1,0 +1,6 @@
+---
+serviceMonitor:
+  create: true
+resources:
+  requests:
+    cpu: 10m

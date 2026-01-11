@@ -1,0 +1,13 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cert-manager.io/certificate_v1.json
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ${IRC_DOMAIN:=domain}
+spec:
+  secretName: ${IRC_DOMAIN:=domain}-tls
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+  commonName: ${IRC_DOMAIN}
+  dnsNames: ["${IRC_DOMAIN}", "*.${IRC_DOMAIN}"]

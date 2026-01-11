@@ -1,0 +1,9 @@
+# Intel Virtual Functions for eth0
+{% for i in range(eth0_num_vfs) %}
+SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", KERNELS=="0000:01:02.{{ i }}", NAME="eth0v{{ i }}"
+{% endfor %}
+
+# Intel Virtual Functions for eth1
+{% for i in range(eth1_num_vfs) %}
+SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", KERNELS=="0000:01:0a.{{ i }}", NAME="eth1v{{ i }}"
+{% endfor %}

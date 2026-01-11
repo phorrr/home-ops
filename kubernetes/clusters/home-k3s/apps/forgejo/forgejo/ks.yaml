@@ -1,0 +1,46 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app forgejo
+  namespace: &namespace forgejo
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  components:
+    - ../../../../../../shared/components/cnpg
+    - ../../../../../../shared/components/dragonfly
+    - ../../../../../../shared/components/gatus/external
+    - ../../../../../../shared/components/volsync
+  dependsOn:
+    - name: cloudnative-pg-cluster
+      namespace: database
+    - name: dragonfly-operator
+      namespace: database
+    - name: onepassword
+      namespace: external-secrets
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  interval: 30m
+  path: ./kubernetes/clusters/home-k3s/apps/forgejo/forgejo/app
+  postBuild:
+    substitute:
+      APP: *app
+      GATUS_SUBDOMAIN: code
+      CNPG_NAME: postgres17
+      VOLSYNC_CAPACITY: 50Gi
+      VOLSYNC_STORAGECLASS: ceph-block-replicated
+      VOLSYNC_ACCESSMODES: ReadWriteOnce
+      VOLSYNC_CACHE_CAPACITY: 5Gi
+      VOLSYNC_CACHE_ACCESSMODES: ReadWriteOnce
+      VOLSYNC_SNAPSHOTCLASS: csi-ceph-blockpool
+  prune: true
+  retryInterval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: *namespace
+  timeout: 5m
+  wait: false

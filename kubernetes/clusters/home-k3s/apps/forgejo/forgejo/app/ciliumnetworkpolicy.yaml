@@ -1,0 +1,247 @@
+---
+# Policy for the main Forgejo application
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: forgejo-app
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: forgejo
+  ingress:
+    # Allow ingress from envoy gateways
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: internal
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: external
+
+    # Allow ingress from woodpecker (webhooks)
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: woodpecker
+
+    # Allow ingress within the namespace (from dragonfly, etc)
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: forgejo
+
+    # Allow ingress from observability (metrics scraping)
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+
+  egress:
+    # Allow DNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # Allow Kubernetes API
+    - toEntities:
+        - kube-apiserver
+
+    # Allow egress within the namespace (to dragonfly)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: forgejo
+
+    # Allow egress to woodpecker
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: woodpecker
+
+    # Allow egress to postgres (database namespace)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: database
+            cnpg.io/cluster: postgres17
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+
+    # Allow egress to internal envoy gateway (for REDACTED_DOMAIN)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: internal
+
+    # Allow egress to external envoy gateway (for REDACTED_DOMAIN / Authelia OIDC)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: external
+
+    # Allow egress to volsync-system (for backups)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: volsync-system
+
+    # Allow internet access (exclude RFC1918 private ranges)
+    - toCIDRSet:
+        - cidr: REDACTED_PUBLIC_IP/0
+          except:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+---
+# Policy for Dragonfly (Redis)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: forgejo-dragonfly
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: dragonfly
+  ingress:
+    # Allow ingress from forgejo app
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: forgejo
+            app.kubernetes.io/name: forgejo
+
+    # Allow ingress from observability (metrics scraping)
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+
+  egress:
+    # Allow DNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+---
+# Policy for volsync backup jobs
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: forgejo-volsync
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/created-by: volsync
+  egress:
+    # Allow DNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # Allow egress to volsync-system (for backups)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: volsync-system
+---
+# Policy for Forgejo runners (CI jobs)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: forgejo-runner
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: forgejo-runner
+  egress:
+    # Allow DNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # Allow Kubernetes API
+    - toEntities:
+        - kube-apiserver
+
+    # Allow egress within the namespace (to forgejo, etc)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: forgejo
+
+    # Allow egress to external envoy gateway (for REDACTED_DOMAIN)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: external
+
+    # Allow internet access (exclude RFC1918 private ranges)
+    - toCIDRSet:
+        - cidr: REDACTED_PUBLIC_IP/0
+          except:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+---
+# Policy for Renovate bot
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: forgejo-renovate
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: renovate
+  egress:
+    # Allow DNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # Allow Kubernetes API
+    - toEntities:
+        - kube-apiserver
+
+    # Allow egress within the namespace (to forgejo, etc)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: forgejo
+
+    # Allow egress to external envoy gateway (for REDACTED_DOMAIN)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: external
+
+    # Allow internet access (exclude RFC1918 private ranges)
+    - toCIDRSet:
+        - cidr: REDACTED_PUBLIC_IP/0
+          except:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16

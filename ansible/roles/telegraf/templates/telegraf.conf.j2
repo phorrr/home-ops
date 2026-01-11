@@ -1,0 +1,109 @@
+# Telegraf Configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+[global_tags]
+  host = "{{ telegraf_hostname }}"
+
+[agent]
+  interval = "{{ telegraf_interval }}"
+  round_interval = true
+  metric_batch_size = 1000
+  metric_buffer_limit = 10000
+  collection_jitter = "0s"
+  flush_interval = "10s"
+  flush_jitter = "0s"
+  precision = "0s"
+  hostname = "{{ telegraf_hostname }}"
+  omit_hostname = false
+
+###############################################################################
+#                            OUTPUT PLUGINS                                   #
+###############################################################################
+
+# Send metrics to VictoriaMetrics via InfluxDB line protocol
+[[outputs.influxdb]]
+  urls = ["{{ telegraf_influxdb_url }}"]
+  skip_database_creation = true
+
+###############################################################################
+#                            INPUT PLUGINS                                    #
+###############################################################################
+
+{% if telegraf_enable_cpu %}
+# Read metrics about cpu usage
+[[inputs.cpu]]
+  percpu = true
+  totalcpu = true
+  collect_cpu_time = false
+  report_active = false
+{% endif %}
+
+{% if telegraf_enable_disk %}
+# Read metrics about disk usage
+[[inputs.disk]]
+  ignore_fs = ["tmpfs", "devtmpfs", "devfs", "iso9660", "overlay", "aufs", "squashfs"]
+{% if telegraf_disk_mount_points %}
+  mount_points = {{ telegraf_disk_mount_points | to_json }}
+{% endif %}
+{% endif %}
+
+{% if telegraf_enable_diskio %}
+# Read metrics about disk IO
+[[inputs.diskio]]
+{% endif %}
+
+{% if telegraf_enable_mem %}
+# Read metrics about memory usage
+[[inputs.mem]]
+{% endif %}
+
+{% if telegraf_enable_net %}
+# Read metrics about network interface usage
+[[inputs.net]]
+{% if telegraf_net_interfaces %}
+  interfaces = {{ telegraf_net_interfaces | to_json }}
+{% endif %}
+{% endif %}
+
+{% if telegraf_enable_processes %}
+# Get the number of processes and group them by status
+[[inputs.processes]]
+{% endif %}
+
+{% if telegraf_enable_system %}
+# Read metrics about system load & uptime
+[[inputs.system]]
+{% endif %}
+
+{% if telegraf_enable_temp %}
+# Read metrics about temperature (requires lm-sensors)
+[[inputs.temp]]
+{% endif %}
+
+{% if telegraf_usb_devices %}
+# Check for USB device presence
+[[inputs.exec]]
+  commands = ["/usr/local/bin/check_usb_devices.sh"]
+  timeout = "5s"
+  data_format = "influx"
+  interval = "30s"
+{% endif %}
+
+{% if telegraf_systemd_units %}
+# Monitor systemd service status
+[[inputs.systemd_units]]
+  unittype = "service"
+  pattern = "{{ telegraf_systemd_units | join(' ') }}"
+{% endif %}
+
+{% if telegraf_tcp_endpoints %}
+# Monitor TCP endpoint availability
+{% for endpoint in telegraf_tcp_endpoints %}
+[[inputs.net_response]]
+  protocol = "tcp"
+  address = "{{ endpoint.address }}"
+  timeout = "5s"
+  [inputs.net_response.tags]
+    name = "{{ endpoint.name }}"
+{% endfor %}
+{% endif %}

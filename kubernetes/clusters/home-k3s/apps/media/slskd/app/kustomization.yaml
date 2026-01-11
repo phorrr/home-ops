@@ -1,0 +1,29 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./externalsecret.yaml
+  - ./helmrelease.yaml
+  - ./ciliumnetworkpolicy.yaml
+  - ./scaledjob.yaml
+
+configMapGenerator:
+  - name: slskd-configmap
+    files:
+      - slskd.yml=./resources/slskd.yml
+  - name: slskd-scripts
+    files:
+      - ./resources/natpmp-manager.sh
+      - ./resources/trigger-beets-import.sh
+  - name: beets-import-scripts
+    files:
+      - ./resources/beets-import.sh
+
+generatorOptions:
+  disableNameSuffixHash: true
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+
+components:
+  - ../../../../../../shared/components/gateway-ext-auth
+  - ../../../../../../shared/components/volsync

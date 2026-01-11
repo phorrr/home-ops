@@ -1,0 +1,124 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app foundry-vtt
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+  maxHistory: 2
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    controllers:
+      foundry-vtt:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          app:
+            image:
+              repository: felddy/foundryvtt
+              tag: release
+            env:
+              TZ: ${TZ}
+              FOUNDRY_HOSTNAME: "vtt.${DOMAIN}"
+              FOUNDRY_PROXY_PORT: "443"
+              FOUNDRY_PROXY_SSL: "true"
+            envFrom:
+              - secretRef:
+                  name: foundry-vtt-secret
+            probes:
+              liveness:
+                enabled: true
+              readiness:
+                enabled: true
+              startup:
+                enabled: true
+                spec:
+                  failureThreshold: 30
+                  periodSeconds: 5
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+
+          ddb-proxy:
+            image:
+              repository: ghcr.io/mrprimate/ddb-proxy
+              tag: 0.0.25@sha256:8dc2d7fb460f5f30e538a2e1b61a96501b6bef3945d92ae86481e69d26ec09e9
+            env:
+              TZ: ${TZ}
+            probes:
+              liveness:
+                enabled: true
+              readiness:
+                enabled: true
+              startup:
+                enabled: true
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+
+    defaultPodOptions:
+      securityContext:
+        runAsUser: 421
+        runAsGroup: 421
+        fsGroup: 421
+        runAsNonRoot: true
+        fsGroupChangePolicy: Always
+
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: &port 30000
+      ddb-proxy:
+        controller: *app
+        ports:
+          http:
+            port: &ddb-port 3000
+
+    route:
+      app:
+        hostnames: ["vtt.${DOMAIN}"]
+        parentRefs:
+          - name: external
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - name: foundry-vtt-app
+                port: *port
+      ddb-proxy:
+        hostnames: ["ddb-proxy.${DOMAIN}"]
+        parentRefs:
+          - name: external
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - name: foundry-vtt-ddb-proxy
+                port: *ddb-port
+
+    persistence:
+      data:
+        existingClaim: *app
+        globalMounts:
+          - path: /data

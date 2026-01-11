@@ -1,0 +1,18 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+configMapGenerator:
+  - files:
+      - resources/configuration.yaml
+    name: authelia-configmap
+  - files:
+      - resources/update-auth-rules-configmap.py
+    name: authelia-merge-script
+generatorOptions:
+  disableNameSuffixHash: true
+resources:
+  - ./certificate.yaml
+  - ./externalsecret.yaml
+  - ./helmrelease.yaml
+  - ./rbac.yaml
+  - ./auth-rules-watcher.yaml

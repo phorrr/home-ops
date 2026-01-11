@@ -1,0 +1,75 @@
+---
+- name: Install python3-debian for deb822_repository module
+  become: true
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+    update_cache: true
+
+- name: Ensure keyrings directory exists
+  become: true
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Download InfluxData GPG key
+  become: true
+  ansible.builtin.get_url:
+    url: https://repos.influxdata.com/influxdata-archive_compat.key
+    dest: /etc/apt/keyrings/influxdata.asc
+    mode: "0644"
+
+- name: Add InfluxData repository
+  become: true
+  ansible.builtin.deb822_repository:
+    name: influxdata
+    types: deb
+    uris: https://repos.influxdata.com/debian
+    suites: stable
+    components:
+      - main
+    signed_by: /etc/apt/keyrings/influxdata.asc
+    state: present
+
+- name: Install telegraf
+  become: true
+  ansible.builtin.apt:
+    name: telegraf
+    state: present
+    update_cache: true
+
+- name: Create telegraf configuration
+  become: true
+  ansible.builtin.template:
+    src: telegraf.conf.j2
+    dest: /etc/telegraf/telegraf.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart telegraf
+
+- name: Install usbutils for USB device monitoring
+  become: true
+  ansible.builtin.apt:
+    name: usbutils
+    state: present
+  when: telegraf_usb_devices | length > 0
+
+- name: Deploy USB device check script
+  become: true
+  ansible.builtin.template:
+    src: check_usb_devices.sh.j2
+    dest: /usr/local/bin/check_usb_devices.sh
+    owner: root
+    group: root
+    mode: "0755"
+  when: telegraf_usb_devices | length > 0
+  notify: restart telegraf
+
+- name: Enable and start telegraf service
+  become: true
+  ansible.builtin.systemd:
+    name: telegraf
+    enabled: true
+    state: started

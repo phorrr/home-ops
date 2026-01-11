@@ -1,0 +1,36 @@
+---
+- name: Upgrade all packages
+  hosts: k3s_cluster
+  become: true
+  become_method: sudo
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+        force_apt_get: yes
+      register: upgrade_result
+
+- name: Check if kernel was updated
+  hosts: k3s_cluster
+  become: true
+  become_method: sudo
+  tasks:
+    - name: Check if kernel packages were upgraded
+      shell: dpkg -l 'linux-image*' | grep '^ii' | grep -v "$(uname -r)"
+      register: kernel_check
+      changed_when: false
+      failed_when: false
+
+    - name: Check if reboot is required
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Report upgrade status
+      debug:
+        msg: "System upgrade completed. {% if kernel_check.rc == 0 %}New kernel packages detected! Reboot required.{% elif reboot_required.stat.exists %}Other packages require a reboot.{% else %}No reboot required.{% endif %}"

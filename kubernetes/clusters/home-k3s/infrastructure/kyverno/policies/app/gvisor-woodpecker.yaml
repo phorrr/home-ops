@@ -1,0 +1,36 @@
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-gvisor-runtime-woodpecker
+  annotations:
+    policies.kyverno.io/title: Add gVisor Runtime to Woodpecker Pods
+    policies.kyverno.io/category: Security
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      This policy mutates pods in the woodpecker namespace to use the gVisor
+      runtime class for enhanced container isolation. This allows pipeline
+      workloads to run with elevated privileges while maintaining security
+      through gVisor's sandbox.
+spec:
+  rules:
+    - name: add-gvisor-runtime
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - woodpecker
+      exclude:
+        any:
+          # Exclude the woodpecker agent and server pods (managed by helm)
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/name: woodpecker
+      mutate:
+        patchStrategicMerge:
+          spec:
+            runtimeClassName: gvisor

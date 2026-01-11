@@ -1,0 +1,62 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anubis-policies
+data:
+  policies.yaml: |
+    bots:
+      # Allow well-known paths (for OIDC, etc)
+      - name: allow-well-known
+        path_regex: ^/\.well-known/.*$
+        action: ALLOW
+
+      # Allow robots.txt
+      - name: allow-robots
+        path_regex: ^/robots\.txt$
+        action: ALLOW
+
+      # Allow favicon
+      - name: allow-favicon
+        path_regex: ^/favicon\.(?:ico|png|gif|jpg|jpeg|svg)$
+        action: ALLOW
+
+      # Allow git operations (authenticated via SSH or HTTP basic auth)
+      - name: allow-git-operations
+        path_regex: .*\.git.*
+        action: ALLOW
+
+      # Allow API endpoints (authenticated)
+      - name: allow-api
+        path_regex: ^/api/.*
+        action: ALLOW
+
+      # Allow static assets
+      - name: allow-assets
+        path_regex: ^/assets/.*
+        action: ALLOW
+
+      # Allow health checks
+      - name: allow-healthz
+        path_regex: ^/healthz$
+        action: ALLOW
+
+      # Allow axios (Claude Code user-agent)
+      - name: allow-axios
+        user_agent_regex: ^axios/.*
+        action: ALLOW
+
+      # Allow Gatus health checks
+      - name: allow-gatus
+        user_agent_regex: ^Gatus/.*
+        action: ALLOW
+
+      # Block known AI scrapers
+      - name: block-ai-crawlers
+        user_agent_regex: (?i:GPTBot|ClaudeBot|Claude-Web|Amazonbot|anthropic-ai|Bytespider|CCBot|Google-Extended|FacebookBot|PerplexityBot|Applebot-Extended)
+        action: DENY
+
+      # Challenge browser requests
+      - name: challenge-browsers
+        user_agent_regex: .*Mozilla.*
+        action: CHALLENGE

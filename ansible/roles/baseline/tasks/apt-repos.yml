@@ -1,0 +1,157 @@
+---
+# ---------------------------------------------------------------------
+# APT Repository Configuration (deb822 format)
+# Supports both standard Debian and Raspberry Pi OS
+#
+# On Raspberry Pi OS, the standard repos are already configured in
+# debian.sources and raspi.sources, so we skip adding them.
+# ---------------------------------------------------------------------
+
+- name: Check if this is Raspberry Pi OS
+  ansible.builtin.stat:
+    path: /etc/rpi-issue
+  register: rpi_issue
+
+- name: Set distribution facts
+  ansible.builtin.set_fact:
+    is_raspberry_pi_os: "{{ rpi_issue.stat.exists | default(false) }}"
+
+- name: Install python3-debian for deb822_repository module
+  become: true
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+    update_cache: true
+
+- name: Check for debian keyring (.gpg)
+  ansible.builtin.stat:
+    path: /usr/share/keyrings/debian-archive-keyring.gpg
+  register: debian_keyring_gpg
+
+- name: Check for debian keyring (.pgp)
+  ansible.builtin.stat:
+    path: /usr/share/keyrings/debian-archive-keyring.pgp
+  register: debian_keyring_pgp
+
+- name: Set keyring path
+  ansible.builtin.set_fact:
+    debian_keyring_path: "{{ '/usr/share/keyrings/debian-archive-keyring.gpg' if debian_keyring_gpg.stat.exists else '/usr/share/keyrings/debian-archive-keyring.pgp' }}"
+
+# ---------------------------------------------------------------------
+# Standard Debian Repository Setup (skip on Raspberry Pi OS)
+# Raspberry Pi OS already has repos configured in debian.sources
+# ---------------------------------------------------------------------
+- name: Backup old sources.list if it exists
+  become: true
+  ansible.builtin.copy:
+    src: /etc/apt/sources.list
+    dest: /etc/apt/sources.list.bak
+    remote_src: true
+    force: false
+  failed_when: false
+  when: not is_raspberry_pi_os
+
+- name: Disable old sources.list to prevent conflicts with deb822 format
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list
+    content: |
+      # This file has been replaced by deb822 format sources in /etc/apt/sources.list.d/
+      # Original backed up to /etc/apt/sources.list.bak
+    mode: "0644"
+  when: not is_raspberry_pi_os
+
+- name: Configure main Debian repository with contrib and non-free
+  become: true
+  ansible.builtin.deb822_repository:
+    name: "{{ ansible_distribution_release }}"
+    types: deb
+    uris: http://deb.debian.org/debian
+    suites: "{{ ansible_distribution_release }}"
+    components:
+      - main
+      - contrib
+      - non-free
+      - non-free-firmware
+    signed_by: "{{ debian_keyring_path }}"
+    state: present
+  when: not is_raspberry_pi_os
+
+- name: Add Debian updates repository
+  become: true
+  ansible.builtin.deb822_repository:
+    name: "{{ ansible_distribution_release }}-updates"
+    types: deb
+    uris: http://deb.debian.org/debian
+    suites: "{{ ansible_distribution_release }}-updates"
+    components:
+      - main
+      - contrib
+      - non-free
+      - non-free-firmware
+    signed_by: "{{ debian_keyring_path }}"
+    state: present
+  when: not is_raspberry_pi_os
+
+- name: Add Debian security repository
+  become: true
+  ansible.builtin.deb822_repository:
+    name: "{{ ansible_distribution_release }}-security"
+    types: deb
+    uris: http://deb.debian.org/debian-security
+    suites: "{{ ansible_distribution_release }}-security"
+    components:
+      - main
+      - contrib
+      - non-free
+      - non-free-firmware
+    signed_by: "{{ debian_keyring_path }}"
+    state: present
+  when: not is_raspberry_pi_os
+
+- name: Add Debian backports repository
+  become: true
+  ansible.builtin.deb822_repository:
+    name: "{{ ansible_distribution_release }}-backports"
+    types: deb
+    uris: http://deb.debian.org/debian
+    suites: "{{ ansible_distribution_release }}-backports"
+    components:
+      - main
+      - contrib
+      - non-free
+      - non-free-firmware
+    signed_by: "{{ debian_keyring_path }}"
+    state: present
+  when: not is_raspberry_pi_os
+
+# ---------------------------------------------------------------------
+# Raspberry Pi OS - just ensure backports is available
+# The main repos are already configured in debian.sources and raspi.sources
+# ---------------------------------------------------------------------
+- name: Check if backports is already configured (Pi OS)
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/{{ ansible_distribution_release }}-backports.sources
+  register: pi_backports_check
+  when: is_raspberry_pi_os
+
+- name: Add Debian backports repository (Pi OS)
+  become: true
+  ansible.builtin.deb822_repository:
+    name: "{{ ansible_distribution_release }}-backports"
+    types: deb
+    uris: http://deb.debian.org/debian
+    suites: "{{ ansible_distribution_release }}-backports"
+    components:
+      - main
+      - contrib
+      - non-free
+      - non-free-firmware
+    signed_by: "{{ debian_keyring_path }}"
+    state: present
+  when: is_raspberry_pi_os and not (pi_backports_check.stat.exists | default(false))
+
+- name: Update apt cache after repository changes
+  become: true
+  ansible.builtin.apt:
+    update_cache: true

@@ -1,0 +1,10 @@
+---
+crds:
+  enabled: true
+replicaCount: 1
+dns01RecursiveNameservers: https://REDACTED_PUBLIC_IP:443/dns-query,https://REDACTED_PUBLIC_IP:443/dns-query
+dns01RecursiveNameserversOnly: true
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: true

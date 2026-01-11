@@ -1,0 +1,34 @@
+---
+directories:
+  downloads: /music-incoming/complete
+  incomplete: /music-incoming/incomplete
+flags:
+  no_version_check: true
+integration:
+  scripts:
+    beets_import:
+      on:
+        - DownloadDirectoryComplete
+      run:
+        executable: /bin/sh
+        args: /scripts/trigger-beets-import.sh
+      timeout: 30000
+metrics:
+  enabled: true
+  url: /metrics
+  authentication:
+    disabled: true
+permissions:
+  file:
+    mode: 750
+remote_configuration: true
+shares:
+  directories:
+    - /music
+    - /music-incoming/shared
+  filters:
+    - \.ini$
+    - Thumbs.db$
+    - \.DS_Store$
+soulseek:
+  listen_port: 50300

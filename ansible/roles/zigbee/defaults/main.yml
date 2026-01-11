@@ -1,0 +1,17 @@
+---
+# Zigbee coordinator configuration
+
+# Serial device for the zigbee coordinator
+zigbee_serial_device: "/dev/ttyAMA0"
+
+# Baud rate for the serial connection
+zigbee_serial_baud: 115200
+
+# TCP port to expose the serial device on
+zigbee_tcp_port: 2000
+
+# Raspberry Pi config.txt settings for UART access
+# Bluetooth must be disabled to free up the UART for zigbee
+zigbee_disable_bluetooth: true
+zigbee_disable_wifi: true
+zigbee_enable_uart: true

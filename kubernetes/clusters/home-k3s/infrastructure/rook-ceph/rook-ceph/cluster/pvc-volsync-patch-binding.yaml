@@ -1,0 +1,11 @@
+---
+apiVersion: admissionregistration.k8s.io/v1alpha1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: pvc-volsync-patch-binding
+spec:
+  policyName: pvc-volsync-patch
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: rook-ceph

@@ -1,0 +1,24 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ceph-alerting-overrides
+  namespace: rook-ceph
+spec:
+  groups:
+    - name: ceph-osd-overrides
+      rules:
+        - alert: CephPGImbalance
+          annotations:
+            description: "OSD {{ $labels.ceph_daemon }} on {{ $labels.hostname }} deviates by more than 30% from average PG count."
+            summary: "PGs are not balanced across OSDs"
+          expr: |
+            abs(
+              ((ceph_osd_numpg > 0) - on (job) group_left avg(ceph_osd_numpg > 0) by (job)) /
+              on (job) group_left avg(ceph_osd_numpg > 0) by (job)
+            ) * on (ceph_daemon) group_left(hostname) ceph_osd_metadata > 0.30
+          for: 72h  # Only alert if imbalance persists for 3 days
+          labels:
+            oid: "REDACTED_PUBLIC_IP.4.1.50495.REDACTED_PUBLIC_IP.5"
+            severity: warning
+            type: ceph_default

@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${APP}-auth-rules
+  labels:
+    authelia.com/auth-rules: "true"
+data:
+  rules.yaml: |
+    # Authelia access control rules for ${APP}
+    # This ConfigMap is automatically discovered by the auth-rules-watcher
+    - domain: ${AUTHELIA_SUBDOMAIN:-${APP}}.${GATEWAY_DOMAIN:-${INTERNAL_DOMAIN}}
+      policy: ${AUTHELIA_POLICY:-two_factor}
+      subject:
+        - group:${AUTHELIA_GROUP:-${APP}}

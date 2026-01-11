@@ -1,0 +1,55 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: slskd-vpn-only
+  namespace: media
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: slskd
+  egress:
+    # Allow DNS lookups to kube-dns
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # Allow traffic within the cluster (for other media apps)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+
+    # Allow traffic to Dragonfly for KEDA queue
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: database
+            app: dragonfly-db
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+
+    # Allow traffic to local networks (home network)
+    - toCIDRSet:
+        - cidr: REDACTED_PRIVATE_CIDR_10_0_0_0_8
+        - cidr: REDACTED_PRIVATE_CIDR_172_16_0_0_12
+        - cidr: REDACTED_PRIVATE_CIDR_192_168_0_0_16
+
+    # Allow ONLY to REDACTED_VPN_PROVIDER WireGuard endpoint (UDP + ICMP for connectivity checks)
+    - toCIDRSet:
+        - cidr: ${VPN_ENDPOINT_IP}/32
+      toPorts:
+        - ports:
+            - port: "51820"
+              protocol: UDP
+      icmps:
+        - fields:
+            - type: 8
+              family: IPv4

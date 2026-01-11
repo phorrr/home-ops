@@ -1,0 +1,98 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app sabnzbd
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+  maxHistory: 2
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    controllers:
+      sabnzbd:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          app:
+            image:
+              repository: ghcr.io/home-operations/sabnzbd
+              tag: 4.5.5@sha256:da57e01cdebc547852b6df85c8df8c0e4d87792742c7608c5590dc653b184e8c
+            env:
+              TZ: ${TZ}
+              SABNZBD__PORT: 8080
+              SABNZBD__HOST_WHITELIST_ENTRIES: >-
+                sabnzbd,
+                sabnzbd.media,
+                sabnzbd.media.svc,
+                sabnzbd.media.svc.cluster,
+                sabnzbd.media.svc.cluster.local,
+                sabnzbd.${INTERNAL_DOMAIN}
+            envFrom:
+              - secretRef:
+                  name: sabnzbd-secret
+            resources:
+              requests:
+                cpu: 100m
+                memory: 250Mi
+
+    defaultPodOptions:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+        fsGroupChangePolicy: OnRootMismatch
+        supplementalGroups:
+          - 65539
+
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: &port 8080
+
+    route:
+      app:
+        hostnames: ["{{ .Release.Name }}.${INTERNAL_DOMAIN}"]
+        annotations:
+          gethomepage.dev/enabled: "true"
+          gethomepage.dev/icon: sabnzbd.png
+          gethomepage.dev/name: SABnzbd
+          gethomepage.dev/group: Downloads
+          gethomepage.dev/widget.type: sabnzbd
+          gethomepage.dev/widget.url: http://sabnzbd.media.svc.cluster.local:8080
+          gethomepage.dev/widget.key: '{{ "{{HOMEPAGE_VAR_SABNZBD_API_KEY}}" }}'
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - name: *app
+                port: *port
+
+    persistence:
+      config:
+        existingClaim: *app
+      media:
+        existingClaim: media
+        globalMounts:
+          - path: /media
+      incomplete:
+        type: emptyDir
+        globalMounts:
+          - path: /incomplete

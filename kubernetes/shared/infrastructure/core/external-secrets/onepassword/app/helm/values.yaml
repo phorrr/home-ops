@@ -1,0 +1,13 @@
+connect:
+  api:
+    serviceMonitor:
+      enabled: false  # Disabled - use our own VMServiceScrape instead (labels mismatch)
+    resources:
+      requests:
+        cpu: 10m
+        memory: 100Mi
+      limits:
+        memory: 200Mi
+  credentialsName: onepassword-secret
+  credentialsKey: 1password-credentials.json
+  serviceType: ClusterIP

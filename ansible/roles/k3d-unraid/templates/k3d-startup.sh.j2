@@ -1,0 +1,90 @@
+#!/bin/bash
+# k3d cluster startup script for {{ k3d_cluster_name }}
+# This script is run by Unraid User Scripts plugin at array startup
+
+set -euo pipefail
+
+echo "==========================================="
+echo "k3d Cluster Startup: {{ k3d_cluster_name }}"
+echo "==========================================="
+echo "Started at: $(date)"
+
+# Copy binaries from persistent storage to RAM
+echo "Installing k3d binaries from /boot/bin..."
+for binary in k3d kubectl flux; do
+  if [ -f "/boot/bin/${binary}" ]; then
+    cp -f "/boot/bin/${binary}" "/usr/local/bin/${binary}"
+    chmod +x "/usr/local/bin/${binary}"
+    echo "  ✓ Installed ${binary}"
+  else
+    echo "  ✗ WARNING: ${binary} not found in /boot/bin"
+  fi
+done
+
+# Wait for Docker to be ready
+echo "Waiting for Docker daemon..."
+RETRY_COUNT=0
+MAX_RETRIES=30
+until docker info >/dev/null 2>&1; do
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+    echo "ERROR: Docker daemon not ready after ${MAX_RETRIES} attempts"
+    exit 1
+  fi
+  echo "  Waiting for Docker... (attempt ${RETRY_COUNT}/${MAX_RETRIES})"
+  sleep 2
+done
+echo "Docker daemon is ready"
+
+# Check if cluster exists
+if k3d cluster list 2>/dev/null | grep -q "{{ k3d_cluster_name }}"; then
+  echo "k3d cluster '{{ k3d_cluster_name }}' found"
+
+  # Check if cluster is running
+  if k3d cluster list 2>/dev/null | grep "{{ k3d_cluster_name }}" | grep -q "running"; then
+    echo "Cluster is already running"
+  else
+    echo "Starting k3d cluster..."
+    if k3d cluster start {{ k3d_cluster_name }}; then
+      echo "Cluster started successfully"
+    else
+      echo "ERROR: Failed to start cluster"
+      exit 1
+    fi
+  fi
+else
+  echo "k3d cluster '{{ k3d_cluster_name }}' not found"
+
+  # Check if config file exists
+  if [ -f "{{ k3d_config_dir }}/config.yaml" ]; then
+    echo "Creating k3d cluster from config..."
+    if k3d cluster create --config {{ k3d_config_dir }}/config.yaml; then
+      echo "Cluster created successfully"
+
+      # Update Docker restart policies
+      echo "Updating Docker restart policies..."
+      docker update --restart=unless-stopped k3d-{{ k3d_cluster_name }}-server-0 2>/dev/null || true
+      docker update --restart=unless-stopped k3d-{{ k3d_cluster_name }}-serverlb 2>/dev/null || true
+    else
+      echo "ERROR: Failed to create cluster"
+      exit 1
+    fi
+  else
+    echo "ERROR: Config file not found at {{ k3d_config_dir }}/config.yaml"
+    echo "Please run the Ansible playbook to provision this node"
+    exit 1
+  fi
+fi
+
+# Verify cluster is healthy
+echo "Verifying cluster health..."
+if k3d cluster list 2>/dev/null | grep "{{ k3d_cluster_name }}" | grep -q "running"; then
+  echo "✓ Cluster is running and healthy"
+  echo "Completed at: $(date)"
+  echo "==========================================="
+  exit 0
+else
+  echo "✗ Cluster health check failed"
+  echo "==========================================="
+  exit 1
+fi

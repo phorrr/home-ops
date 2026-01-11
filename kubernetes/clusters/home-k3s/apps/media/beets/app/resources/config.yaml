@@ -1,0 +1,266 @@
+---
+directory: /music
+library: /config/beets-library.db
+timeout: 30.0
+
+import:
+  write: yes
+  copy: no
+  move: yes
+  timid: no
+  duplicate_action: skip
+  quiet: yes
+  quiet_fallback: skip
+
+match:
+  strong_rec_thresh: 0.1
+  medium_rec_thresh: 0.25
+  max_rec:
+    missing_tracks: strong
+    unmatched_tracks: medium
+
+plugins:
+  - chroma
+  - fetchart
+  - embedart
+  - lastgenre
+  - replaygain
+  - scrub
+  - albumtypes
+  - inline
+  - web
+
+item_fields:
+  # Disc number without zero-padding
+  disc_num: str(int(disc)) if disc else ''
+  # Format display for singletons
+  format_display: |
+    fmt = format.upper() if format else 'UNKNOWN'
+    bd = bitdepth or 0
+    sr = samplerate or 0
+    if bd > 16 or sr > 44100:
+        sr_khz = int(sr / 1000) if sr else 0
+        return f'[{fmt} {bd}-{sr_khz}k]'
+    return f'[{fmt}]'
+
+album_fields:
+  # Format info with hi-res detection for album folders
+  format_info: |
+    if items:
+        item = items[0]
+        fmt = item.format.upper() if item.format else 'UNKNOWN'
+        bd = item.bitdepth or 0
+        sr = item.samplerate or 0
+        if bd > 16 or sr > 44100:
+            sr_khz = int(sr / 1000) if sr else 0
+            return f'[{fmt} {bd}-{sr_khz}k]'
+        return f'[{fmt}]'
+    return '[UNKNOWN]'
+  # Year with fallback
+  year_display: |
+    if year:
+        return f'({year})'
+    return '(Unknown)'
+  # Catalog number, omitted if missing
+  catalog_display: |
+    if catalognum:
+        return f' [{catalognum}]'
+    return ''
+  # Mix series detection - used for both albumtype:dj-mix and mixed compilations
+  mix_series: |
+    a = (album or '').lower()
+    series_map = [
+        # Ambient/Electronic compilations (often not tagged as dj-mix in MB)
+        ('fahrenheit project', 'Fahrenheit Project'),
+        ('café del mar', 'Café del Mar'),
+        ('cafe del mar', 'Café del Mar'),
+        ('buddha bar', 'Buddha Bar'),
+        ('hotel costes', 'Hotel Costes'),
+        ('chillout sessions', 'Ministry of Sound Chillout'),
+        # Global Underground and related
+        ('global underground', 'Global Underground'),
+        ('nubreed', 'Global Underground Nubreed'),
+        # Fabric
+        ('fabriclive', 'FabricLive'),
+        ('fabric ', 'Fabric'),
+        # Balance
+        ('balance', 'Balance'),
+        # !K7 labels
+        ('dj-kicks', 'DJ-Kicks'),
+        ('dj kicks', 'DJ-Kicks'),
+        # Late night series
+        ('late night tales', 'Late Night Tales'),
+        ('another late night', 'Another Late Night'),
+        ('nighttime stories', 'Nighttime Stories'),
+        # Renaissance
+        ('renaissance', 'Renaissance'),
+        # Back to Mine
+        ('back to mine', 'Back to Mine'),
+        # Solid Steel
+        ('solid steel', 'Solid Steel'),
+        # BBC
+        ('essential mix', 'Essential Mix'),
+        # Fuse
+        ('fuse presents', 'Fuse Presents'),
+        # Tresor
+        ('tresor', 'Tresor'),
+        # Innervisions
+        ('secret weapons', 'Innervisions Secret Weapons'),
+        # Cocoon
+        ('cocoon compilation', 'Cocoon'),
+        # Drumcode
+        ('drumcode', 'Drumcode'),
+        # Kompakt
+        ('kompakt total', 'Kompakt Total'),
+        # Defected
+        ('defected', 'Defected'),
+        # Anjuna
+        ('anjunadeep', 'Anjunadeep'),
+        ('anjunabeats', 'Anjunabeats'),
+        # Boiler Room
+        ('boiler room', 'Boiler Room'),
+        # Ministry of Sound
+        ('ministry of sound', 'Ministry of Sound'),
+        # Gatecrasher
+        ('gatecrasher', 'Gatecrasher'),
+        # Hed Kandi
+        ('hed kandi', 'Hed Kandi'),
+        # Café Mambo
+        ('café mambo', 'Café Mambo'),
+        ('cafe mambo', 'Café Mambo'),
+    ]
+    for pattern, name in series_map:
+        if pattern in a:
+            return name
+    return ''
+  # Fallback for dj-mix without known series
+  mix_series_or_artist: |
+    a = (album or '').lower()
+    series_map = [
+        # Same list as mix_series - keep in sync
+        ('fahrenheit project', 'Fahrenheit Project'),
+        ('café del mar', 'Café del Mar'),
+        ('cafe del mar', 'Café del Mar'),
+        ('buddha bar', 'Buddha Bar'),
+        ('hotel costes', 'Hotel Costes'),
+        ('chillout sessions', 'Ministry of Sound Chillout'),
+        ('global underground', 'Global Underground'),
+        ('nubreed', 'Global Underground Nubreed'),
+        ('fabriclive', 'FabricLive'),
+        ('fabric ', 'Fabric'),
+        ('balance', 'Balance'),
+        ('dj-kicks', 'DJ-Kicks'),
+        ('dj kicks', 'DJ-Kicks'),
+        ('late night tales', 'Late Night Tales'),
+        ('another late night', 'Another Late Night'),
+        ('nighttime stories', 'Nighttime Stories'),
+        ('renaissance', 'Renaissance'),
+        ('back to mine', 'Back to Mine'),
+        ('solid steel', 'Solid Steel'),
+        ('essential mix', 'Essential Mix'),
+        ('fuse presents', 'Fuse Presents'),
+        ('tresor', 'Tresor'),
+        ('secret weapons', 'Innervisions Secret Weapons'),
+        ('cocoon compilation', 'Cocoon'),
+        ('drumcode', 'Drumcode'),
+        ('kompakt total', 'Kompakt Total'),
+        ('defected', 'Defected'),
+        ('anjunadeep', 'Anjunadeep'),
+        ('anjunabeats', 'Anjunabeats'),
+        ('boiler room', 'Boiler Room'),
+        ('ministry of sound', 'Ministry of Sound'),
+        ('gatecrasher', 'Gatecrasher'),
+        ('hed kandi', 'Hed Kandi'),
+        ('café mambo', 'Café Mambo'),
+        ('cafe mambo', 'Café Mambo'),
+    ]
+    for pattern, name in series_map:
+        if pattern in a:
+            return name
+    return f'_Other/{albumartist}' if albumartist else '_Other'
+
+paths:
+  # Order matters - first match wins
+  # Multi-disc rules must come before single-disc rules for each type
+
+  # Soundtracks
+  'albumtype:soundtrack disctotal:2..': Soundtracks/$album%aunique{} $year_display$catalog_display $format_info/Disc $disc_num/$track - $title
+  albumtype:soundtrack: Soundtracks/$album%aunique{} $year_display$catalog_display $format_info/$track - $title
+
+  # DJ mixes (albumtype from MusicBrainz)
+  'albumtype:dj-mix disctotal:2..': Mixes/$mix_series_or_artist/$album%aunique{} $year_display$catalog_display $format_info/Disc $disc_num/$track - $artist - $title
+  albumtype:dj-mix: Mixes/$mix_series_or_artist/$album%aunique{} $year_display$catalog_display $format_info/$track - $artist - $title
+
+  # Any album matching known mix series
+  'mix_series::".+" disctotal:2..': Mixes/$mix_series/$album%aunique{} $year_display$catalog_display $format_info/Disc $disc_num/$track - $artist - $title
+  'mix_series::".+"': Mixes/$mix_series/$album%aunique{} $year_display$catalog_display $format_info/$track - $artist - $title
+
+  # Live albums
+  'albumtype:live disctotal:2..': Live/$albumartist/$album%aunique{} $year_display$catalog_display $format_info/Disc $disc_num/$track - $title
+  albumtype:live: Live/$albumartist/$album%aunique{} $year_display$catalog_display $format_info/$track - $title
+
+  # Compilations
+  'comp:yes disctotal:2..': Compilations/$album%aunique{} $year_display$catalog_display $format_info/Disc $disc_num/$track - $artist - $title
+  comp: Compilations/$album%aunique{} $year_display$catalog_display $format_info/$track - $artist - $title
+
+  # Standard albums
+  'disctotal:2..': Albums/$albumartist/$album%aunique{} $year_display$catalog_display $format_info/Disc $disc_num/$track - $title
+  default: Albums/$albumartist/$album%aunique{} $year_display$catalog_display $format_info/$track - $title
+
+  # Singletons
+  singleton: Non-Album/$artist/$title $format_display
+
+chroma:
+  auto: yes
+
+fetchart:
+  auto: yes
+  minwidth: 500
+  maxwidth: 1200
+  sources:
+    - filesystem
+    - 'coverart:release'
+    - itunes
+    - 'coverart:releasegroup'
+
+embedart:
+  auto: yes
+  maxwidth: 500
+
+lastgenre:
+  auto: yes
+  count: 3
+  canonical: yes
+  prefer_specific: yes
+  whitelist: yes
+
+replaygain:
+  backend: ffmpeg
+  auto: no
+  targetlevel: 89
+  r128_targetlevel: 84
+  r128: Opus
+  peak: 'true'
+  threads: 4
+
+scrub:
+  auto: yes
+
+albumtypes:
+  types:
+    - ep: EP
+    - dj-mix: DJ-Mix
+    - live: Live
+  bracket: "[]"
+
+replace:
+  '[\\/]': _
+  '^\.': _
+  '[\x00-\x1f]': _
+  '[<>:"\?\*\|]': _
+  '\s+$': ''
+  '\.$': _
+
+web:
+  host: REDACTED_PUBLIC_IP
+  port: 8337

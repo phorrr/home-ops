@@ -1,0 +1,11 @@
+%YAML 1.1
+---
+# ser2net configuration for zigbee coordinator
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+connection: &zigbee
+  accepter: tcp,{{ zigbee_tcp_port }}
+  enable: on
+  connector: serialdev,{{ zigbee_serial_device }},{{ zigbee_serial_baud }}n81,local
+  options:
+    kickolduser: true

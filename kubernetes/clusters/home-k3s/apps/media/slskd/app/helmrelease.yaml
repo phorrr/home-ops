@@ -1,0 +1,251 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app slskd
+spec:
+  interval: 30m
+  timeout: 10m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    controllers:
+      slskd:
+        annotations:
+          reloader.stakater.com/auto: "true"
+          configmap.reloader.stakater.com/reload: slskd-scripts
+        strategy: Recreate
+
+        initContainers:
+          init-dirs:
+            image:
+              repository: busybox
+              tag: latest
+            command:
+              - /bin/sh
+              - -c
+              - |
+                mkdir -p /music-incoming/complete
+                mkdir -p /music-incoming/incomplete
+                mkdir -p /music-incoming/shared
+                chown -R 1000:1000 /music-incoming
+            securityContext:
+              runAsUser: 0
+              runAsNonRoot: false
+
+        containers:
+          gluetun:
+            image:
+              repository: ghcr.io/qdm12/gluetun
+              tag: v3.41.0@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045
+            env:
+              DOT: "off"
+              HTTP_CONTROL_SERVER_ADDRESS: :8000
+              HTTP_CONTROL_SERVER_AUTH: "none"
+              HEALTH_SERVER_ADDRESS: :9999
+              HEALTH_SUCCESS_WAIT_DURATION: 10s
+              VPN_TYPE: wireguard
+              VPN_SERVICE_PROVIDER: custom
+              VPN_PORT_FORWARDING: "off"
+              FIREWALL_INPUT_PORTS: 5030,8000,9999
+              FIREWALL_OUTBOUND_SUBNETS: REDACTED_PRIVATE_IP/24,10.30.0.0/15
+              UPDATER_PERIOD: 24h
+            envFrom:
+              - secretRef:
+                  name: slskd-gluetun-secret
+            lifecycle:
+              postStart:
+                exec:
+                  command: ["/bin/sh", "-c", "(ip rule del table 51820; ip -6 rule del table 51820) || true"]
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: 9999
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  successThreshold: 1
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: 9999
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  successThreshold: 1
+                  timeoutSeconds: 5
+                  failureThreshold: 30
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              runAsNonRoot: false
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                add: [NET_ADMIN, NET_RAW]
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 128Mi
+
+          natpmp:
+            image:
+              repository: docker.io/library/alpine
+              tag: 3.23.2@sha256:865b95f46d98cf867a156fe4a135ad3fe50d2056aa3f25ed31662dff6da4eb62
+            command: ["/scripts/natpmp-manager.sh"]
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              runAsNonRoot: false
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                add: ["NET_ADMIN"]
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                cpu: 100m
+                memory: 64Mi
+
+          app:
+            image:
+              repository: REDACTED_DOMAIN/ops/containers/slskd
+              tag: 0.24.1
+            env:
+              DOTNET_BUNDLE_EXTRACT_BASE_DIR: /tmp/.net
+              TZ: ${TZ}
+              SLSKD_APP_DIR: /config
+              SLSKD_HTTP_PORT: &port 5030
+              SLSKD_NO_AUTH: true
+              SLSKD_NO_HTTPS: true
+              SLSKD_SLSK_LISTEN_PORT: 50300
+              SLSKD_UPLOAD_SPEED_LIMIT: "10240"    # 10 MiB/s
+              SLSKD_DOWNLOAD_SPEED_LIMIT: "51200"  # 50 MiB/s
+              # Dragonfly for beets trigger - use dig @10.31.0.10 to resolve via kube-dns
+              REDIS_HOST: "dragonfly-db.database.svc.cluster.local"
+              REDIS_PORT: "6379"
+            envFrom:
+              - secretRef:
+                  name: slskd-secret
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *port
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 30
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 1Gi
+
+    defaultPodOptions:
+      imagePullSecrets:
+        - name: forgejo-registry
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+        fsGroupChangePolicy: OnRootMismatch
+
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: *port
+
+    route:
+      app:
+        hostnames: ["{{ .Release.Name }}.${GATEWAY_DOMAIN:-${INTERNAL_DOMAIN}}"]
+        annotations:
+          gethomepage.dev/enabled: "true"
+          gethomepage.dev/icon: slskd.png
+          gethomepage.dev/name: slskd
+          gethomepage.dev/group: Downloads
+        parentRefs:
+          - name: ${GATEWAY_NAME:-internal}
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - name: *app
+                port: *port
+
+    persistence:
+      config:
+        existingClaim: *app
+      config-file:
+        type: configMap
+        name: slskd-configmap
+        defaultMode: 0775
+        globalMounts:
+          - path: /config/slskd.yml
+            subPath: slskd.yml
+            readOnly: true
+      scripts:
+        type: configMap
+        name: slskd-scripts
+        defaultMode: 0775
+        globalMounts:
+          - path: /scripts
+            readOnly: true
+      music:
+        existingClaim: music
+        globalMounts:
+          - path: /music
+            readOnly: true
+      music-incoming:
+        existingClaim: music-incoming
+        globalMounts:
+          - path: /music-incoming
+      tmp:
+        type: emptyDir

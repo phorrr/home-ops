@@ -1,0 +1,31 @@
+---
+- name: Create udev rules for Intel NICs
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/70-net-intel.rules
+    content: |
+      # Intel 25GbE Physical Functions
+      SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", KERNELS=="0000:01:00.0", NAME="eth0", RUN+="/bin/sh -c 'echo {{ eth0_num_vfs }} > /sys/class/net/eth0/device/sriov_numvfs'"
+      SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", KERNELS=="0000:01:00.1", NAME="eth1", RUN+="/bin/sh -c 'echo {{ eth1_num_vfs }} > /sys/class/net/eth1/device/sriov_numvfs'"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create udev rule for Mellanox 100GbE NIC (eth0)
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/70-net-mellanox-eth0.rules
+    content: |
+      SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", ENV{ID_PCI_ID}=="15b3:1018", NAME="eth0"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create udev rules for Intel Virtual Functions
+  become: true
+  ansible.builtin.template:
+    src: intel-vf.rules.j2
+    dest: /etc/udev/rules.d/70-net-intel-vf.rules
+    owner: root
+    group: root
+    mode: "0644"

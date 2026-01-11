@@ -1,0 +1,28 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./repositories.yaml
+  - ./config.yaml
+  # Core infrastructure (creates namespaces + core components)
+  - ../../../shared/infrastructure/core/kube-system
+  - ../../../shared/infrastructure/core/network
+  - ../../../shared/infrastructure/core/cert-manager
+  - ../../../shared/infrastructure/core/external-secrets
+  - ../../../shared/infrastructure/core/flux-system
+  - ../../../shared/infrastructure/core/volsync-system
+  - ../../../shared/infrastructure/core/kyverno
+  # K3s shared infrastructure (cilium)
+  - ../../../shared/infrastructure/k3s/kube-system
+  - ../../../shared/infrastructure/k3s/network
+  # Cluster-specific infrastructure (home-k3s only)
+  - ./kyverno
+  - ./rook-ceph
+  - ./democratic-csi
+  - ./multus
+  - ./network/envoy-external
+  - ./network/external-dns-external
+  - ./kube-system/amd-device-plugin
+  - ./kube-system/kata-deploy
+  - ./kube-system/gvisor-runtimeclass
+  - ./volsync-system/restic-rest-nfs

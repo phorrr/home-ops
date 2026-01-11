@@ -1,0 +1,11 @@
+---
+- name: restart ser2net
+  become: true
+  ansible.builtin.systemd:
+    name: ser2net
+    state: restarted
+
+- name: reboot required
+  become: true
+  ansible.builtin.debug:
+    msg: "A reboot is required for config.txt changes to take effect"

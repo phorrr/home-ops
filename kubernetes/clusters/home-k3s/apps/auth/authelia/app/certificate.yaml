@@ -1,0 +1,38 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: authelia-jwk-ecdsa
+  namespace: auth
+spec:
+  dnsNames: ["auth.${DOMAIN}"]
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-production
+  privateKey:
+    algorithm: ECDSA
+    encoding: PKCS8
+    size: 256
+  secretName: jwk-ecdsa
+  usages:
+    - digital signature
+    - key encipherment
+---
+# advanced/cert-rsa-jwk.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: authelia-jwk-rsa
+  namespace: auth
+spec:
+  dnsNames: ["auth.${DOMAIN}"]
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-production
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS8
+    size: 2048
+  secretName: jwk-rsa
+  usages:
+    - digital signature
+    - key encipherment

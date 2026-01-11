@@ -1,0 +1,65 @@
+---
+metrics: true
+debug: false
+
+storage:
+  type: postgres
+  path: $${DB_URI}
+  caching: true
+
+ui:
+  title: Status | Gatus
+  header: Status
+
+web:
+  port: $${CUSTOM_WEB_PORT}
+
+connectivity:
+  checker:
+    target: REDACTED_PUBLIC_IP:53
+    interval: 1m
+
+endpoints:
+  - name: flux-webhook
+    group: external
+    ui:
+      hide-hostname: true
+      hide-url: true
+    url: https://flux-webhook-home-k3s.${DOMAIN}
+    interval: 1m
+    client:
+      dns-resolver: tcp://REDACTED_PUBLIC_IP:53
+    conditions:
+      - "[STATUS] == 404"
+
+  - name: ergoircd
+    group: external
+    url: tcp://irc.${IRC_DOMAIN}:6667
+    interval: 1m
+    client:
+      dns-resolver: tcp://REDACTED_PUBLIC_IP:53
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: ergoircd-tls
+    group: external
+    url: tls://irc.${IRC_DOMAIN}:6697
+    interval: 1m
+    client:
+      dns-resolver: tcp://REDACTED_PUBLIC_IP:53
+    conditions:
+      - "[CONNECTED] == true"
+      - "[CERTIFICATE_EXPIRATION] > 72h"
+
+  - name: alertmanager
+    group: guarded
+    url: REDACTED_PUBLIC_IP
+    interval: 1m
+    ui:
+      hide-hostname: true
+      hide-url: true
+    dns:
+      query-name: alertmanager.${INTERNAL_DOMAIN}
+      query-type: A
+    conditions:
+      - "len([BODY]) == 0"

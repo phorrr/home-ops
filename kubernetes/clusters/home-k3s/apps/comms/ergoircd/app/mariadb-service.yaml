@@ -1,0 +1,21 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ergoircd-mariadb
+  namespace: comms
+  annotations:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/instance: ergoircd
+    app.kubernetes.io/part-of: ergoircd
+spec:
+  type: ClusterIP
+  ports:
+    - name: mysql
+      port: 3306
+      protocol: TCP
+      targetPort: mysql
+  selector:
+    app.kubernetes.io/component: primary
+    app.kubernetes.io/instance: ergoircd
+    app.kubernetes.io/name: mariadb

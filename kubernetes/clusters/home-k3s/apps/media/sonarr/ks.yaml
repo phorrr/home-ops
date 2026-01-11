@@ -1,0 +1,36 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app sonarr
+  namespace: &namespace media
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  components:
+    - ../../../../../../shared/components/cnpg
+    - ../../../../../../shared/components/volsync
+    - ../../../../../../shared/components/gatus/guarded
+  dependsOn:
+    - name: cloudnative-pg-cluster
+      namespace: database
+    - name: onepassword
+      namespace: external-secrets
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  interval: 30m
+  path: ./kubernetes/clusters/home-k3s/apps/media/sonarr/app
+  postBuild:
+    substitute:
+      APP: *app
+      AUTHELIA_GROUP: arr-stack
+  prune: true
+  retryInterval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: *namespace
+  timeout: 5m
+  wait: false

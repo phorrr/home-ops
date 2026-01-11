@@ -1,0 +1,212 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-config
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  kubernetes.yaml: |
+    mode: cluster
+    gateway: true
+    ingress: false
+    traefik: false
+  settings.yaml: |
+    title: Home Dashboard
+    favicon: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/heimdall.png
+    theme: dark
+    headerStyle: clean
+    hideVersion: true
+    quicklaunch:
+      searchDescriptions: true
+      hideInternetSearch: true
+    layout:
+      Home Automation:
+        style: row
+        columns: 3
+        icon: mdi-home-automation
+      Media:
+        style: row
+        columns: 3
+        icon: mdi-play-circle
+      Downloads:
+        style: row
+        columns: 3
+        icon: mdi-download-circle
+      Selfhosted:
+        style: row
+        columns: 3
+        icon: mdi-application
+      Observability:
+        style: row
+        columns: 3
+        icon: mdi-monitor-eye
+      Infrastructure:
+        style: row
+        columns: 3
+        icon: mdi-server-network
+  custom.css: ""
+  custom.js: ""
+  bookmarks.yaml: |
+    - Development:
+        - GitHub:
+            - icon: github.png
+              href: https://github.com/REDACTED_NAME/home-ops
+        - Kubesearch:
+            - icon: kubernetes-dashboard.png
+              description: Helm Chart Search
+              href: https://kubesearch.dev/
+        - Homepage Icons:
+            - icon: si-jpeg
+              href: https://github.com/homarr-labs/dashboard-icons/blob/main/ICONS.md
+  services.yaml: |
+    - Home Automation:
+        - Home Assistant:
+            href: https://hass.${INTERNAL_DOMAIN}
+            icon: home-assistant.png
+            description: Home automation
+        - Home Assistant Code:
+            href: https://hass-code.${INTERNAL_DOMAIN}
+            icon: vscode.png
+            description: Config editor
+        - Zigbee2MQTT:
+            href: https://z2m.${INTERNAL_DOMAIN}
+            icon: zigbee2mqtt.png
+            description: Zigbee bridge
+    - Media:
+        - Jellyfin:
+            href: https://jellyfin.${DOMAIN}
+            icon: jellyfin.png
+            description: Media server
+        - Emby:
+            href: https://emby.${DOMAIN}
+            icon: emby.png
+            description: Media server
+        - Jellyseerr:
+            href: https://jellyseerr.${DOMAIN}
+            icon: jellyseerr.png
+            description: Media requests
+        - Jellystat:
+            href: https://jellystat.${INTERNAL_DOMAIN}
+            icon: jellyfin.png
+            description: Jellyfin statistics
+        - Watchstate:
+            href: https://watchstate.${INTERNAL_DOMAIN}
+            icon: plex.png
+            description: Sync watch state
+        - Calibre Web:
+            href: https://calibre.${DOMAIN}
+            icon: calibre-web.png
+            description: E-book library
+        - Calibre Downloader:
+            href: https://books.${DOMAIN}
+            icon: calibre.png
+            description: Book downloads
+    - Downloads:
+        - Sonarr:
+            href: https://sonarr.${INTERNAL_DOMAIN}
+            icon: sonarr.png
+            description: TV shows
+        - Radarr:
+            href: https://radarr.${INTERNAL_DOMAIN}
+            icon: radarr.png
+            description: Movies
+        - Bazarr:
+            href: https://bazarr.${INTERNAL_DOMAIN}
+            icon: bazarr.png
+            description: Subtitles
+        - Prowlarr:
+            href: https://prowlarr.${INTERNAL_DOMAIN}
+            icon: prowlarr.png
+            description: Indexer manager
+        - SABnzbd:
+            href: https://sabnzbd.${INTERNAL_DOMAIN}
+            icon: sabnzbd.png
+            description: Usenet downloader
+        - qBittorrent:
+            href: https://qbittorrent.${INTERNAL_DOMAIN}
+            icon: qbittorrent.png
+            description: Torrent client
+    - Selfhosted:
+        - Immich:
+            href: https://photos.${DOMAIN}
+            icon: immich.png
+            description: Photo management
+        - Paperless:
+            href: https://paperless.${INTERNAL_DOMAIN}
+            icon: paperless-ngx.png
+            description: Document management
+        - Radicale:
+            href: https://cal.${INTERNAL_DOMAIN}
+            icon: radicale.png
+            description: Calendar & contacts
+        - Foundry VTT:
+            href: https://vtt.${DOMAIN}
+            icon: foundry-vtt.png
+            description: Virtual tabletop
+        - Atuin:
+            href: https://atuin.${INTERNAL_DOMAIN}
+            icon: atuin.png
+            description: Shell history sync
+        - Windmill:
+            href: https://windmill.${DOMAIN}
+            icon: windmill.png
+            description: Workflow automation
+    - Observability:
+        - Grafana:
+            href: https://grafana.${INTERNAL_DOMAIN}
+            icon: grafana.png
+            description: Dashboards
+        - Gatus:
+            href: https://status.${DOMAIN}
+            icon: gatus.png
+            description: Status page
+        - Victoria Metrics:
+            href: https://metrics.${INTERNAL_DOMAIN}
+            icon: victoria-metrics.png
+            description: Metrics storage
+        - Victoria Logs:
+            href: https://logs.${INTERNAL_DOMAIN}
+            icon: victoria-metrics.png
+            description: Log aggregation
+        - Alertmanager:
+            href: https://alertmanager.${INTERNAL_DOMAIN}
+            icon: alertmanager.png
+            description: Alert management
+    - Infrastructure:
+        - Rook Ceph:
+            href: https://rook.${INTERNAL_DOMAIN}
+            icon: ceph.png
+            description: Storage dashboard
+        - Authelia:
+            href: https://auth.${INTERNAL_DOMAIN}
+            icon: authelia.png
+            description: Authentication
+        - LLDAP:
+            href: https://lldap.${INTERNAL_DOMAIN}
+            icon: lldap.png
+            description: LDAP server
+  widgets.yaml: |
+    - search:
+        provider: [duckduckgo]
+        focus: false
+        target: _blank
+    - kubernetes:
+        cluster:
+          cpu: true
+          label: cluster
+          memory: true
+          show: true
+          showLabel: true
+        nodes:
+          cpu: true
+          memory: true
+          show: true
+          showLabel: true
+    - datetime:
+        text_size: l
+        format:
+          dateStyle: long
+          timeStyle: short
+          hourCycle: h23
+  docker.yaml: ""

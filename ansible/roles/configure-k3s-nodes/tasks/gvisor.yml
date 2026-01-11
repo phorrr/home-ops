@@ -1,0 +1,91 @@
+---
+# ---------------------------------------------------------------------
+# gVisor (runsc) Installation and Configuration
+# Only runs on nodes with enable_gvisor: true
+# Uses containerd imports pattern (same as kata-deploy) to avoid conflicts
+# ---------------------------------------------------------------------
+
+- name: Add gVisor APT repository (deb822 format)
+  become: true
+  ansible.builtin.deb822_repository:
+    name: gvisor
+    types: deb
+    uris: https://storage.googleapis.com/gvisor/releases
+    suites: release
+    components: main
+    architectures: "{{ kernel_arch }}"
+    signed_by: https://gvisor.dev/archive.key
+    state: present
+
+- name: Install runsc package
+  become: true
+  ansible.builtin.apt:
+    name: runsc
+    state: present
+    update_cache: true
+  register: runsc_install
+
+# Create gVisor config directory (mirroring kata-deploy pattern)
+- name: Ensure gVisor containerd config directory exists
+  become: true
+  ansible.builtin.file:
+    path: /opt/gvisor/containerd/config.d
+    state: directory
+    mode: "0755"
+
+# Create gVisor drop-in config (imported by containerd)
+- name: Create gVisor containerd drop-in config
+  become: true
+  ansible.builtin.copy:
+    dest: /opt/gvisor/containerd/config.d/gvisor.toml
+    mode: "0644"
+    content: |
+      # gVisor (runsc) runtime configuration
+      # Imported by containerd via config.toml.tmpl imports directive
+
+      [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runsc]
+        runtime_type = "io.containerd.runsc.v1"
+
+      [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runsc.options]
+        TypeUrl = "io.containerd.runsc.v1.options"
+        ConfigPath = "/opt/gvisor/runsc.toml"
+  register: gvisor_containerd_config
+
+# Create runsc options file with DinD support flags
+- name: Create gVisor runsc options file
+  become: true
+  ansible.builtin.copy:
+    dest: /opt/gvisor/runsc.toml
+    mode: "0644"
+    content: |
+      # gVisor runsc configuration for Docker-in-Docker support
+      [runsc_config]
+        net-raw = "true"
+        allow-packet-socket-write = "true"
+  register: runsc_config
+
+# Update containerd config.toml.tmpl to import gVisor config
+# This adds gVisor to the imports array alongside kata-deploy
+- name: Check if gVisor import already exists in containerd config template
+  become: true
+  ansible.builtin.command:
+    cmd: grep -q 'gvisor.toml' /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+  register: gvisor_import_check
+  failed_when: false
+  changed_when: false
+
+- name: Add gVisor to containerd imports
+  become: true
+  ansible.builtin.replace:
+    path: /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+    regexp: '^imports = \["/opt/kata/containerd/config.d/kata-deploy.toml"\]$'
+    replace: 'imports = ["/opt/kata/containerd/config.d/kata-deploy.toml", "/opt/gvisor/containerd/config.d/gvisor.toml"]'
+  when: gvisor_import_check.rc != 0
+  register: containerd_template_update
+
+- name: Notify K3s restart required
+  ansible.builtin.debug:
+    msg: "gVisor config changed on {{ inventory_hostname }}. K3s restart required."
+  when: runsc_install.changed or gvisor_containerd_config.changed or runsc_config.changed or (containerd_template_update.changed | default(false))
+  changed_when: runsc_install.changed or gvisor_containerd_config.changed or runsc_config.changed or (containerd_template_update.changed | default(false))
+  notify: restart k3s for gvisor

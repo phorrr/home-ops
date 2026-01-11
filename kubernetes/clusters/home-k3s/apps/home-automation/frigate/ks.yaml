@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/kustomize.toolkit.fluxcd.io/kustomization_v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: frigate
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: frigate
+  components:
+    - ../../../../../../shared/components/gpu
+    - ../../../../../../shared/components/volsync
+    - ../../../../../../shared/components/keda/nas-nfs-scaler
+  dependsOn:
+    - name: intel-gpu-resource-driver
+      namespace: kube-system
+    - name: multus-networks
+      namespace: network
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  interval: 1h
+  path: "./kubernetes/clusters/home-k3s/apps/home-automation/frigate/app"
+  postBuild:
+    substitute:
+      APP: frigate
+      VOLSYNC_CLAIM: frigate
+      VOLSYNC_CAPACITY: 5Gi
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: home-automation
+  timeout: 5m
+  wait: false

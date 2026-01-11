@@ -1,0 +1,25 @@
+---
+# yaml-language-server: $schema=https://lds-schemas.pages.dev/dragonflydb.io/dragonfly_v1alpha1.json
+apiVersion: dragonflydb.io/v1alpha1
+kind: Dragonfly
+metadata:
+  name: dragonfly-db
+spec:
+  image: ghcr.io/dragonflydb/dragonfly:v1.36.0@sha256:af221b68138afb0b0238401c335493cfc2b060d577c5d6c018ddf6a29d3119f9
+  replicas: 3
+  env:
+    - name: MAX_MEMORY
+      valueFrom:
+        resourceFieldRef:
+          resource: limits.memory
+          divisor: 1Mi
+  args:
+    - --maxmemory=$(MAX_MEMORY)Mi
+    - --default_lua_flags=allow-undeclared-keys
+    - --proactor_threads=4
+    - --master_reconnect_timeout_ms=10000
+  resources:
+    requests:
+      cpu: 100m
+    limits:
+      memory: 1Gi

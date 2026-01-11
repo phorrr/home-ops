@@ -1,0 +1,25 @@
+---
+# Generic playbook to bootstrap Kubernetes clusters (k3s, k3d, etc.)
+#
+# Usage:
+#   # Bootstrap home-k3s cluster
+#   CLUSTER_NAME=home-k3s ansible-playbook -i ansible/inventory.yaml ansible/bootstrap-cluster.yaml
+#
+#   # Bootstrap zapp-k3d cluster
+#   CLUSTER_NAME=zapp-k3d ansible-playbook -i ansible/inventory.yaml ansible/bootstrap-cluster.yaml
+#
+#   # Bootstrap offsite-k3d cluster
+#   CLUSTER_NAME=offsite-k3d ansible-playbook -i ansible/inventory.yaml ansible/bootstrap-cluster.yaml
+#
+# Environment variables:
+#   CLUSTER_NAME - Name of the cluster to bootstrap (required)
+#   VAULT_NAME   - Name of the 1Password vault (defaults to CLUSTER_NAME)
+#   ROOT_DIR     - Repository root directory (auto-detected)
+
+- name: Bootstrap Kubernetes cluster applications
+  hosts: localhost
+  gather_facts: false
+  connection: local
+
+  roles:
+    - bootstrap-cluster

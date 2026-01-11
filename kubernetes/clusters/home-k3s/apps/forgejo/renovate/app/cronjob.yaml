@@ -1,0 +1,65 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: renovate
+spec:
+  schedule: "0 * * * *"  # Every hour
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: renovate
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: renovate
+              image: ghcr.io/renovatebot/renovate:42
+              env:
+                - name: LOG_LEVEL
+                  value: info
+                - name: RENOVATE_CONFIG_FILE
+                  value: /config/config.json
+                - name: RENOVATE_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: renovate-secret
+                      key: RENOVATE_TOKEN
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: cache
+                  mountPath: /tmp/renovate
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 512Mi
+                limits:
+                  memory: 2Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: config
+              configMap:
+                name: renovate-config
+            - name: cache
+              emptyDir: {}

@@ -1,0 +1,301 @@
+---
+# ---------------------------------------------------------------------
+# Variables used in this role:
+#   - transit_ip: IP address for transit network (enables transit networking)
+#   - eth0_num_vfs: Number of SR-IOV VFs on eth0 (enables SR-IOV mode)
+#   - eth1_num_vfs: Number of SR-IOV VFs on eth1
+#   - enable_zfs: Enable ZFS configuration
+#   - transit_vlan: VLAN ID for transit network (default: 33)
+#   - transit_gateway: Gateway for transit network (default: 10.33.0.1)
+#
+# Note: APT repositories are configured by the baseline role
+# ---------------------------------------------------------------------
+
+- name: Set architecture-specific variables
+  ansible.builtin.set_fact:
+    kernel_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
+    use_sriov: "{{ eth0_num_vfs is defined and eth0_num_vfs | int > 0 }}"
+    transit_interface: "{{ 'eth0v0' if (eth0_num_vfs is defined and eth0_num_vfs | int > 0) else 'eth0.' ~ (transit_vlan | default(33)) }}"
+
+# ---------------------------------------------------------------------
+# Backports Pinning (K3s-specific)
+# ---------------------------------------------------------------------
+- name: Set apt preferences for kernel, zfs and firmware packages from backports (Debian 12 bookworm)
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/backports-kernel
+    content: |
+      Package: linux-image*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+
+      Package: linux-modules*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+
+      Package: linux-headers*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+
+      Package: firmware*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+
+      Package: zfs*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+  when: ansible_distribution_release == "bookworm"
+
+- name: Set apt preferences for ZFS packages from backports (Debian 13+ trixie and later)
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/backports-zfs
+    content: |
+      Package: zfs*
+      Pin: release a={{ ansible_distribution_release }}-backports
+      Pin-Priority: 900
+  when: ansible_distribution_release != "bookworm" and enable_zfs | default(false) | bool
+
+# ---------------------------------------------------------------------
+# Kernel Installation
+# ---------------------------------------------------------------------
+- name: Install kernel from backports (Debian 12 bookworm)
+  become: true
+  ansible.builtin.apt:
+    name:
+      - "linux-image-{{ kernel_arch }}"
+      - "linux-headers-{{ kernel_arch }}"
+    state: latest
+    default_release: "{{ ansible_distribution_release }}-backports"
+  register: kernel_install_status
+  when: ansible_distribution_release == "bookworm"
+
+- name: Install kernel (Debian 13+ trixie and later)
+  become: true
+  ansible.builtin.apt:
+    name:
+      - "linux-image-{{ kernel_arch }}"
+      - "linux-headers-{{ kernel_arch }}"
+    state: latest
+  register: kernel_install_status
+  when: ansible_distribution_release != "bookworm"
+
+# ---------------------------------------------------------------------
+# Package Installation
+# ---------------------------------------------------------------------
+- name: Install zfsutils from backports
+  become: true
+  ansible.builtin.apt:
+    name:
+      - zfsutils-linux
+      - zfs-dkms
+    state: latest
+    default_release: "{{ ansible_distribution_release }}-backports"
+  when: enable_zfs | default(false) | bool
+
+- name: Install common packages
+  become: true
+  ansible.builtin.apt:
+    name:
+      - iproute2
+      - lvm2
+      - vlan
+    state: present
+
+- name: Install x86-specific packages
+  become: true
+  ansible.builtin.apt:
+    name:
+      - linux-cpupower
+      - nfs-kernel-server
+      - powertop
+    state: present
+  when: ansible_architecture == "x86_64"
+
+# ---------------------------------------------------------------------
+# etcdctl Installation
+# ---------------------------------------------------------------------
+- name: Install etcdctl
+  ansible.builtin.import_tasks: etcdctl.yml
+
+# ---------------------------------------------------------------------
+# SR-IOV Network Configuration (when eth0_num_vfs is defined)
+# ---------------------------------------------------------------------
+- name: Apply udev rules for SR-IOV network interfaces
+  ansible.builtin.import_tasks: udev.yml
+  when: use_sriov | bool
+
+- name: Reload udev rules
+  become: true
+  ansible.builtin.command: udevadm control --reload-rules
+  changed_when: true
+  when: use_sriov | bool
+
+- name: Trigger udev rules to apply changes
+  become: true
+  ansible.builtin.command: udevadm trigger
+  changed_when: true
+  when: use_sriov | bool
+
+# ---------------------------------------------------------------------
+# VLAN module loading (for non-SR-IOV hosts)
+# ---------------------------------------------------------------------
+- name: Ensure 8021q module is loaded for VLAN support
+  become: true
+  community.general.modprobe:
+    name: 8021q
+    state: present
+    persistent: present
+  when: not use_sriov | bool and transit_ip is defined
+
+# ---------------------------------------------------------------------
+# Transit Network Configuration (when transit_ip is defined)
+# ---------------------------------------------------------------------
+- name: Ensure transit routing table is defined
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/iproute2/rt_tables
+    line: "150	transit"
+    regexp: "^150\\s+transit"
+    state: present
+    create: true
+  when: transit_ip is defined
+
+- name: Create transit policy routes systemd service
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/transit-policy-routes.service
+    content: |
+      [Unit]
+      Description=Transit policy routes
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/ip route add default via {{ transit_gateway | default('10.33.0.1') }} dev {{ transit_interface }} table transit
+      ExecStart=/usr/sbin/ip rule add from 10.33.3.0/24 table transit priority 50
+      ExecStart=/usr/sbin/ip rule add from REDACTED_PUBLIC_IP/29 table transit priority 50
+      ExecStop=/usr/sbin/ip rule del from 10.33.3.0/24 table transit priority 50
+      ExecStop=/usr/sbin/ip rule del from REDACTED_PUBLIC_IP/29 table transit priority 50
+      Restart=on-failure
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: enable transit policy routes
+  when: transit_ip is defined
+
+# ---------------------------------------------------------------------
+# Network Interface Configuration - SR-IOV mode
+# ---------------------------------------------------------------------
+- name: Configure network interfaces (SR-IOV mode)
+  become: true
+  ansible.builtin.blockinfile:
+    path: /etc/network/interfaces
+    block: |
+      auto eth0
+      iface eth0 inet dhcp
+        pre-up /usr/sbin/ethtool --set-fec eth0 encoding off || true
+        post-up /usr/sbin/ip link set dev eth0 mtu 9000
+
+      auto eth0v0
+      iface eth0v0 inet static
+        pre-up /usr/sbin/ip link set eth0 vf 0 trust on
+        pre-up /usr/sbin/ip link set eth0 vf 0 vlan {{ transit_vlan | default(33) }}
+        address {{ transit_ip }}/24
+
+      auto eth0v1
+      iface eth0v1 inet manual
+        pre-up /usr/sbin/ip link set eth0 vf 1 trust on
+        pre-up /usr/sbin/ip link set eth0 vf 1 vlan 8
+
+    marker: "# {mark} ANSIBLE MANAGED"
+    state: present
+  notify: notify_network_change
+  when: use_sriov | bool and transit_ip is defined
+
+# ---------------------------------------------------------------------
+# Network Interface Configuration - VLAN mode (non-SR-IOV)
+# ---------------------------------------------------------------------
+- name: Configure network interfaces (VLAN mode)
+  become: true
+  ansible.builtin.blockinfile:
+    path: /etc/network/interfaces
+    block: |
+      auto eth0
+      iface eth0 inet dhcp
+
+      auto eth0.{{ transit_vlan | default(33) }}
+      iface eth0.{{ transit_vlan | default(33) }} inet static
+        address {{ transit_ip }}/24
+        vlan-raw-device eth0
+
+    marker: "# {mark} ANSIBLE MANAGED"
+    state: present
+  notify: notify_network_change
+  when: not use_sriov | bool and transit_ip is defined
+
+# ---------------------------------------------------------------------
+# Basic network config (no transit network)
+# ---------------------------------------------------------------------
+- name: Configure network interfaces (basic, no transit)
+  become: true
+  ansible.builtin.blockinfile:
+    path: /etc/network/interfaces
+    block: |
+      auto eth0
+      iface eth0 inet dhcp
+
+    marker: "# {mark} ANSIBLE MANAGED"
+    state: present
+  notify: notify_network_change
+  when: transit_ip is not defined
+
+- name: Reboot server if kernel was updated and we're bootstrapping
+  become: true
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: kernel_install_status.changed and lookup('env', 'BOOTSTRAP') == '1'
+
+# ---------------------------------------------------------------------
+# BD795 Hardware-Specific Configuration
+# ---------------------------------------------------------------------
+- name: Apply BD795-specific configuration
+  ansible.builtin.import_tasks: bd795.yml
+  when: "'bd795' in group_names"
+
+# ---------------------------------------------------------------------
+# Container Runtime Tuning
+# ---------------------------------------------------------------------
+- name: Apply sysctl tuning for container workloads
+  become: true
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    # inotify limits for file watching (Flux, Woodpecker, etc.)
+    - { name: "fs.inotify.max_user_watches", value: "1048576" }
+    - { name: "fs.inotify.max_user_instances", value: "8192" }
+    - { name: "fs.inotify.max_queued_events", value: "32768" }
+  tags:
+    - sysctl
+    - inotify
+
+# ---------------------------------------------------------------------
+# ZFS Configuration
+# ---------------------------------------------------------------------
+- name: Apply ZFS configuration
+  ansible.builtin.import_tasks: zfs.yml
+  when: enable_zfs | default(false) | bool
+
+# ---------------------------------------------------------------------
+# gVisor Runtime Configuration
+# ---------------------------------------------------------------------
+- name: Apply gVisor runtime configuration
+  ansible.builtin.import_tasks: gvisor.yml
+  when: enable_gvisor | default(false) | bool

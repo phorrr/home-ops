@@ -1,0 +1,87 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: woodpecker-isolation
+spec:
+  endpointSelector: {}
+  ingress:
+    # Allow ingress from envoy gateway (network namespace)
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: internal
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: external
+
+    # Allow ingress from forgejo (webhooks)
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: forgejo
+
+    # Allow ingress within the namespace (server <-> agent, pipeline pods)
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: woodpecker
+
+  egress:
+    # Allow DNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # Allow Kubernetes API (essential for K8s backend to spawn pipeline pods)
+    - toEntities:
+        - kube-apiserver
+
+    # Allow egress within the namespace (server <-> agent, pipeline pods)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: woodpecker
+
+    # Allow egress to forgejo (clone repos, API calls)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: forgejo
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+            - port: "8923"
+              protocol: TCP
+            - port: "22"
+              protocol: TCP
+
+    # Allow egress to external envoy gateway (for OAuth flow via REDACTED_DOMAIN)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: external
+
+    # Allow egress to postgres (database namespace)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: database
+            cnpg.io/cluster: postgres17
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+
+    # Allow internet access (exclude RFC1918 private ranges)
+    # Needed for: pulling container images, build dependencies, etc.
+    - toCIDRSet:
+        - cidr: REDACTED_PUBLIC_IP/0
+          except:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
